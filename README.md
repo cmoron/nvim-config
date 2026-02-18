@@ -7,82 +7,80 @@ Configuration Neovim personnelle basée sur la configuration Vim précédente, a
 ### Version Neovim
 - **Neovim >= 0.11** (pour l'API LSP native)
 
-Vérifier la version :
+Installation via Snap (recommandé pour avoir la dernière version stable) :
 ```bash
+sudo snap install nvim --classic
+
+# Vérification
 nvim --version
 ```
 
 ### Dépendances système
 
-#### Installation groupée (Ubuntu/Debian)
+#### 1. Outils de base et Ripgrep
 ```bash
-# Installer toutes les dépendances de base
 sudo apt update
-sudo apt install -y git curl wget unzip ripgrep build-essential python3 python3-pip
-```
-
-#### Détail des dépendances
-
-##### 1. Outils de base
-```bash
-sudo apt install git curl wget unzip
+sudo apt install -y git curl wget unzip ripgrep fd-find build-essential
 ```
 - **git** : Gestion des plugins et vim-fugitive
 - **curl/wget** : Téléchargement de ressources
 - **unzip** : Extraction des archives (fonts, plugins)
+- **ripgrep** / **fd-find** : Recherche rapide (Telescope live grep / find files)
+- **build-essential** : gcc, g++, make (compilation Treesitter)
 
-##### 2. Ripgrep (pour Telescope live grep)
+#### 2. Python (via uv)
+
+Ne pas utiliser `pip` système. Installer **uv** via `pipx` ou le script officiel :
 ```bash
-sudo apt install ripgrep
+# Via pipx (si disponible)
+pipx install uv
 
-# Vérification
-rg --version
+# Ou via le script officiel
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-##### 3. Build tools (pour compiler Treesitter et autres plugins)
+Installer le linter/formatter Python :
 ```bash
-sudo apt install build-essential
-```
-Inclut : gcc, g++, make
-
-##### 4. Python et Pip (pour les serveurs LSP Python)
-```bash
-sudo apt install python3 python3-pip
-
-# Vérification
-python3 --version
-pip3 --version
+uv tool install ruff
 ```
 
-##### 5. Node.js et npm (pour Copilot et serveurs LSP)
+#### 3. Node.js (v20 LTS via NodeSource)
 ```bash
-# Requis : Node.js >= 18
-# Installation via nvm (recommandé) ou apt
+# Ajouter le dépôt NodeSource
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
 
 # Vérification
 node --version
 npm --version
 ```
 
-### Formatters (optionnel, pour conform.nvim)
+Installer les outils JS/Bash en global :
+```bash
+sudo npm install -g pyright prettier bash-language-server
+```
+
+#### 4. Rust (via rustup)
+```bash
+# Installer Rust via rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Installer rust-analyzer
+rustup component add rust-analyzer
+
+# Installer le formatter Lua
+cargo install stylua
+```
+
+### Formatters (pour conform.nvim)
 
 Ces formatters sont utilisés par conform.nvim pour formater votre code avec `<leader>f`.
 
-#### Prettier (JavaScript, TypeScript, HTML, CSS, JSON, etc.)
-```bash
-npm install -g prettier
-```
-
-#### Black (Python)
-```bash
-pip install black
-```
-
-#### StyLua (Lua)
-```bash
-cargo install stylua
-# ou télécharger depuis https://github.com/JohnnyMorganz/StyLua/releases
-```
+| Langage | Formatter | Installé via |
+|---------|-----------|--------------|
+| Python | Ruff | `uv tool install ruff` |
+| JS/TS/HTML/CSS/JSON | Prettier | `sudo npm install -g prettier` |
+| Lua | StyLua | `cargo install stylua` |
 
 > **Note :** Si un formatter n'est pas installé, conform.nvim utilisera le LSP comme fallback.
 
@@ -111,59 +109,30 @@ Puis configurer votre terminal pour utiliser "Hack Nerd Font Mono".
 
 Les serveurs LSP fournissent l'autocomplétion, le go-to-definition, les diagnostics, etc.
 
-### Python - Pyright
-```bash
-pip install pyright
-# ou
-npm install -g pyright
-```
-
-### Bash - bash-language-server
-```bash
-npm install -g bash-language-server
-```
-
-### JavaScript/TypeScript - typescript-language-server
-```bash
-npm install -g typescript-language-server typescript
-```
-
-### Svelte - svelte-language-server
-```bash
-npm install -g svelte-language-server
-```
-
-### Rust - rust-analyzer
-```bash
-# Via rustup (si Rust est installé)
-rustup component add rust-analyzer
-```
+| Langage | Serveur LSP | Installé via |
+|---------|-------------|--------------|
+| Python | Pyright | `sudo npm install -g pyright` |
+| Python (linting) | Ruff | `uv tool install ruff` |
+| Bash | bash-language-server | `sudo npm install -g bash-language-server` |
+| JS/TS | typescript-language-server | `sudo npm install -g typescript-language-server typescript` |
+| Svelte | svelte-language-server | `sudo npm install -g svelte-language-server` |
+| Rust | rust-analyzer | `rustup component add rust-analyzer` |
 
 ### Vérification des LSP installés
 ```bash
-# Python
-which pyright-langserver
-
-# Bash
-which bash-language-server
-
-# JavaScript/TypeScript
-which typescript-language-server
-
-# Svelte
-which svelteserver
-
-# Rust
-which rust-analyzer
+which pyright-langserver bash-language-server typescript-language-server svelteserver rust-analyzer
 ```
 
 ## Installation
 
-1. Cloner ou copier cette configuration dans `~/.config/nvim/`
-2. Installer les dépendances listées ci-dessus
+1. Cloner ou copier cette configuration dans `~/.config/nvim/` :
+   ```bash
+   git clone <repo-url> ~/.config/nvim
+   ```
+2. Installer les dépendances listées ci-dessus (Neovim, Node.js, Rust, uv, LSP, formatters)
 3. Lancer Neovim : `nvim`
 4. Les plugins s'installeront automatiquement au premier démarrage (via lazy.nvim)
-5. Redémarrer Neovim après l'installation des plugins
+5. **Redémarrer Neovim** après l'installation des plugins (nécessaire pour que Treesitter se charge correctement)
 
 ## Raccourcis - Vue d'ensemble complète
 
@@ -323,7 +292,7 @@ Après avoir tapé les 2 caractères, des labels apparaissent sur les correspond
 | `K` | Normal | Scroll rapide vers le haut (3 lignes) |
 
 **Formatage avec conform.nvim :**
-- Utilise prettier, black, stylua selon le type de fichier
+- Utilise prettier, ruff, stylua selon le type de fichier
 - Fallback sur le formatage LSP si pas de formatter installé
 - Voir la section "Formatters" pour installer les formatters
 
