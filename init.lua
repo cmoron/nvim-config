@@ -526,7 +526,7 @@ require("lazy").setup({
                 return
             end
             configs.setup({
-                ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "html", "css", "python" },
+                ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "html", "css", "python", "java" },
                 auto_install = true,
                 highlight = {
                     enable = true,
@@ -623,6 +623,12 @@ require("lazy").setup({
         end,
     },
 
+    -- Java LSP (nvim-jdtls gère les spécificités de jdtls : workspace, project detection)
+    {
+        "mfussenegger/nvim-jdtls",
+        ft = "java", -- Chargement paresseux : uniquement sur les fichiers Java
+    },
+
     {
         "neovim/nvim-lspconfig",
         dependencies = { "hrsh7th/cmp-nvim-lsp" },
@@ -693,5 +699,63 @@ vim.api.nvim_create_autocmd("LspAttach", {
         -- gra ou <leader>ca = Code Action (actions de code)
         -- (gra est le raccourci par défaut de Neovim 0.11)
         vim.keymap.set({ "n", "v" }, "<leader>ca", vim.lsp.buf.code_action, opts)
+    end,
+})
+
+-- ============================
+-- Java (jdtls via nvim-jdtls)
+-- ============================
+
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "java",
+    callback = function()
+        local jdtls = require("jdtls")
+
+        -- Chemin vers jdtls (installé dans ~/.local/share/jdtls/)
+        local jdtls_dir = vim.fn.expand("~/.local/share/jdtls")
+
+        -- Launcher jar (point d'entrée de jdtls)
+        local launcher = vim.fn.glob(jdtls_dir .. "/plugins/org.eclipse.equinox.launcher_*.jar")
+        if launcher == "" then
+            vim.notify("jdtls: launcher jar introuvable dans " .. jdtls_dir, vim.log.levels.ERROR)
+            return
+        end
+
+        -- Config native selon l'OS
+        local config_dir = jdtls_dir .. "/config_linux"
+
+        -- Workspace isolé par projet (évite les conflits entre projets)
+        local project_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":p:h:t")
+        local workspace_dir = vim.fn.expand("~/.cache/jdtls/workspaces/") .. project_name
+
+        -- Capabilities depuis nvim-cmp
+        local capabilities = require("cmp_nvim_lsp").default_capabilities()
+
+        jdtls.start_or_attach({
+            cmd = {
+                "java",
+                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Dosgi.bundles.defaultStartLevel=4",
+                "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                "-Dlog.level=ALL",
+                "-Xmx1g",
+                "--add-modules=ALL-SYSTEM",
+                "--add-opens", "java.base/java.util=ALL-UNNAMED",
+                "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+                "-jar", launcher,
+                "-configuration", config_dir,
+                "-data", workspace_dir,
+            },
+            root_dir = jdtls.setup.find_root({ ".git", "mvnw", "gradlew", "pom.xml", "build.gradle" }),
+            capabilities = capabilities,
+            settings = {
+                java = {
+                    format = { enabled = true },
+                    saveActions = { organizeImports = true },
+                    completion = { favoriteStaticMembers = {} },
+                    sources = { organizeImports = { starThreshold = 9999, staticStarThreshold = 9999 } },
+                },
+            },
+        })
     end,
 })
