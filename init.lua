@@ -456,6 +456,8 @@ require("lazy").setup({
         },
         opts = {
             formatters_by_ft = {
+                -- Trailing whitespace sur tous les filetypes
+                ["*"] = { "trim_whitespace" },
                 lua = { "stylua" },
                 python = { "ruff_fix", "ruff_format" },
                 javascript = { "prettier" },
@@ -466,11 +468,17 @@ require("lazy").setup({
                 json = { "prettier" },
                 yaml = { "prettier" },
                 markdown = { "prettier" },
+                -- xmllint (paquet : libxml2-utils / libxml2)
+                xml = { "xmllint" },
             },
             -- Fallback sur LSP si pas de formatter configuré
             format_on_save = false, -- Pas de format automatique
             formatters = {
-                -- Configuration custom si nécessaire
+                xmllint = {
+                    command = "xmllint",
+                    args = { "--format", "-" },
+                    stdin = true,
+                },
             },
         },
     },
