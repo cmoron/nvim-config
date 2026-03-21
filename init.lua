@@ -62,6 +62,22 @@ vim.opt.fileencoding = "utf-8" -- Encoding des fichiers
 -- Désactiver le folding
 vim.opt.foldenable = false
 
+-- Clipboard WSL2 : évite le freeze OSC 52 (terminal ne répond pas)
+if vim.fn.has("wsl") == 1 then
+    vim.g.clipboard = {
+        name = "WslClipboard",
+        copy = {
+            ["+"] = "clip.exe",
+            ["*"] = "clip.exe",
+        },
+        paste = {
+            ["+"] = 'powershell.exe -NoLogo -NoProfile -c [Console]::Out.Write($(Get-Clipboard -Raw).ToString().Replace("`r`n", "`n").Replace("`r", "`n"))',
+            ["*"] = 'powershell.exe -NoLogo -NoProfile -c [Console]::Out.Write($(Get-Clipboard -Raw).ToString().Replace("`r`n", "`n").Replace("`r", "`n"))',
+        },
+        cache_enabled = 0,
+    }
+end
+
 -- Désactiver les warnings de deprecation (temporaire)
 vim.deprecate = function() end
 
@@ -486,9 +502,6 @@ require("lazy").setup({
         end,
     },
 
-    -- Copilot (nécessite Node.js >= 18)
-    "github/copilot.vim",
-
     -- Indent guides
     {
         "lukas-reineke/indent-blankline.nvim",
@@ -532,11 +545,25 @@ require("lazy").setup({
             "hrsh7th/cmp-nvim-lsp", -- Source LSP
             "hrsh7th/cmp-buffer", -- Source buffer
             "hrsh7th/cmp-path", -- Source paths
+            "L3MON4D3/LuaSnip", -- Moteur de snippets
+            "saadparwaiz1/cmp_luasnip", -- Source snippets pour cmp
+            "rafamadriz/friendly-snippets", -- Collection de snippets
         },
         config = function()
             local cmp = require("cmp")
+            local luasnip = require("luasnip")
+
+            -- Charger les snippets friendly-snippets
+            require("luasnip.loaders.from_vscode").lazy_load()
 
             cmp.setup({
+                -- Moteur de snippets (requis pour les completions LSP de type snippet)
+                snippet = {
+                    expand = function(args)
+                        luasnip.lsp_expand(args.body)
+                    end,
+                },
+
                 -- Fenêtre de complétion
                 window = {
                     completion = cmp.config.window.bordered(),
@@ -545,8 +572,25 @@ require("lazy").setup({
 
                 -- Mappings
                 mapping = cmp.mapping.preset.insert({
-                    ["<Tab>"] = cmp.mapping.select_next_item(),
-                    ["<S-Tab>"] = cmp.mapping.select_prev_item(),
+                    -- Tab : naviguer dans cmp OU sauter dans le snippet
+                    ["<Tab>"] = cmp.mapping(function(fallback)
+                        if cmp.visible() then
+                            cmp.select_next_item()
+                        elseif luasnip.expand_or_jumpable() then
+                            luasnip.expand_or_jump()
+                        else
+                            fallback()
+                        end
+                    end, { "i", "s" }),
+                    ["<S-Tab>"] = cmp.mapping(function(fallback)
+                        if cmp.visible() then
+                            cmp.select_prev_item()
+                        elseif luasnip.jumpable(-1) then
+                            luasnip.jump(-1)
+                        else
+                            fallback()
+                        end
+                    end, { "i", "s" }),
                     ["<C-b>"] = cmp.mapping.scroll_docs(-4),
                     ["<C-f>"] = cmp.mapping.scroll_docs(4),
                     ["<C-Space>"] = cmp.mapping.complete(),
@@ -557,6 +601,7 @@ require("lazy").setup({
                 -- Sources (ordre = priorité)
                 sources = cmp.config.sources({
                     { name = "nvim_lsp" }, -- LSP en priorité
+                    { name = "luasnip" }, -- Snippets
                     { name = "buffer" }, -- Mots du buffer
                     { name = "path" }, -- Chemins de fichiers
                 }),
@@ -564,9 +609,9 @@ require("lazy").setup({
                 -- Formatage des items
                 formatting = {
                     format = function(entry, vim_item)
-                        -- Afficher la source
                         vim_item.menu = ({
                             nvim_lsp = "[LSP]",
+                            luasnip = "[Snippet]",
                             buffer = "[Buffer]",
                             path = "[Path]",
                         })[entry.source.name]
@@ -574,9 +619,6 @@ require("lazy").setup({
                     end,
                 },
 
-                completion = {
-                    autocomplete = false,
-                },
             })
         end,
     },
@@ -588,25 +630,18 @@ require("lazy").setup({
             -- Capabilities pour nvim-cmp (meilleure autocomplétion)
             local capabilities = require("cmp_nvim_lsp").default_capabilities()
 
-            -- Configurer les capabilities pour tous les serveurs LSP
-            vim.lsp.config("*", {
-                capabilities = capabilities,
-            })
+            -- Appliquer les capabilities à tous les serveurs LSP
+            vim.lsp.config("*", { capabilities = capabilities })
 
-            -- Activer les LSP
-            vim.lsp.enable("pyright") -- Python
-            vim.lsp.enable("bashls") -- Bash
-            vim.lsp.enable("ts_ls") -- JavaScript/TypeScript
-            vim.lsp.enable("svelte") -- Svelte
-            vim.lsp.enable("rust_analyzer") -- Rust
-
-            -- Configurer Ruff LSP
-            require("lspconfig").ruff.setup({
-                on_attach = function(client, bufnr)
-                    -- Désactiver le hover (conflit avec pyright)
+            -- Config spécifique à ruff : désactiver le hover (conflit avec pyright)
+            vim.lsp.config("ruff", {
+                on_attach = function(client)
                     client.server_capabilities.hoverProvider = false
                 end,
             })
+
+            -- Activer tous les serveurs LSP
+            vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff" })
         end,
     },
 })
