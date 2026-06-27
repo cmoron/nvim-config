@@ -543,6 +543,45 @@ require("lazy").setup({
                     enable = true,
                 },
             })
+
+            -- Fix markdown sous Neovim 0.12 : la branche master de nvim-treesitter
+            -- est archivee (mai 2025) et sa query d'injections markdown utilise la
+            -- directive custom `#set-lang-from-info-string!` sur les blocs ```lang.
+            -- Le runtime treesitter de 0.12 crashe dessus (get_range -> node:range()
+            -- sur un node nil) a l'ouverture d'un .md. On remplace l'injection des
+            -- blocs de code par la capture standard @injection.language (version du
+            -- runtime), via query.set (le loader de nvim-treesitter ignore after/).
+            vim.treesitter.query.set(
+                "markdown",
+                "injections",
+                [[
+(fenced_code_block
+  (info_string
+    (language) @injection.language)
+  (code_fence_content) @injection.content)
+
+((html_block) @injection.content
+  (#set! injection.language "html")
+  (#set! injection.combined)
+  (#set! injection.include-children))
+
+((minus_metadata) @injection.content
+  (#set! injection.language "yaml")
+  (#offset! @injection.content 1 0 -1 0)
+  (#set! injection.include-children))
+
+((plus_metadata) @injection.content
+  (#set! injection.language "toml")
+  (#offset! @injection.content 1 0 -1 0)
+  (#set! injection.include-children))
+
+([
+  (inline)
+  (pipe_table_cell)
+] @injection.content
+  (#set! injection.language "markdown_inline"))
+]]
+            )
         end,
     },
 
