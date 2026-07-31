@@ -1,5 +1,5 @@
 -- ============================
--- Configuration Neovim minimale
+-- Configuration Neovim
 -- Basée sur la config Vim personnelle
 -- ============================
 
@@ -41,6 +41,7 @@ vim.opt.showcmd = true -- Afficher la commande en cours
 vim.opt.ruler = true -- Afficher la position du curseur
 vim.opt.list = true -- Afficher les caractères invisibles
 vim.opt.listchars = { tab = "→ ", trail = "·", extends = ">", precedes = "<" }
+vim.o.winborder = "rounded" -- Bordures arrondies pour les floats
 
 -- Comportement
 vim.opt.hidden = true -- Buffers cachés
@@ -61,6 +62,20 @@ vim.opt.fileencoding = "utf-8" -- Encoding des fichiers
 
 -- Désactiver le folding
 vim.opt.foldenable = false
+
+-- Diagnostics : pas de virtual text (tiny-inline-diagnostic s'en charge),
+-- signes dans la gouttière
+vim.diagnostic.config({
+    virtual_text = false,
+    signs = {
+        text = {
+            [vim.diagnostic.severity.ERROR] = "●",
+            [vim.diagnostic.severity.WARN] = "●",
+            [vim.diagnostic.severity.INFO] = "●",
+            [vim.diagnostic.severity.HINT] = "●",
+        },
+    },
+})
 
 -- Clipboard WSL2 : évite le freeze OSC 52 (terminal ne répond pas)
 if vim.fn.has("wsl") == 1 then
@@ -137,7 +152,7 @@ map("n", "K", "3<C-y>")
 map("v", "J", "2<C-e>")
 map("v", "K", "3<C-y>")
 
--- Navigation buffers (sera amélioré avec bufferline)
+-- Navigation buffers
 map("n", "<Tab>", ":bnext<CR>")
 map("n", "<S-Tab>", ":bprevious<CR>")
 map("n", "<S-F12>", ":bnext<CR>")
@@ -145,6 +160,10 @@ map("n", "<S-F11>", ":bprevious<CR>")
 
 -- Indent/Dedent en mode insertion
 map("i", "<S-Tab>", "<C-o><<")
+
+-- Commentaires natifs (Neovim 0.10+ : gcc / gc), garde l'ancien raccourci
+vim.keymap.set("n", "<leader>c<leader>", "gcc", { remap = true, silent = true, desc = "Toggle comment line" })
+vim.keymap.set("v", "<leader>c<leader>", "gc", { remap = true, silent = true, desc = "Toggle comment selection" })
 
 -- Reload config
 map("n", "<Leader><CR>", ":source ~/.config/nvim/init.lua<CR>", { desc = "Reload config" })
@@ -174,38 +193,73 @@ vim.opt.rtp:prepend(lazypath)
 -- ============================
 
 require("lazy").setup({
-    -- Colorscheme
+    -- Colorscheme (port Lua : définit NormalFloat et les groupes treesitter,
+    -- contrairement à morhetz/gruvbox qui laissait un fond noir sur les floats)
     {
-        "morhetz/gruvbox",
+        "ellisonleao/gruvbox.nvim",
         lazy = false,
         priority = 1000,
         config = function()
+            require("gruvbox").setup({})
             vim.cmd([[colorscheme gruvbox]])
         end,
     },
 
-    -- Nvim-tree (remplace NERDTree)
+    -- Snacks (picker + explorer + indent guides + lazygit)
     {
-        "nvim-tree/nvim-tree.lua",
-        dependencies = { "nvim-tree/nvim-web-devicons" },
-        keys = {
-            { "<F9>", "<cmd>NvimTreeToggle<cr>", desc = "Toggle NvimTree" },
-            { "<leader><Tab>", "<cmd>NvimTreeFindFile<cr>", desc = "Find file in tree" },
-        },
+        "folke/snacks.nvim",
+        lazy = false,
+        priority = 1000,
         opts = {
-            view = {
-                width = 30,
+            picker = {
+                enabled = true,
+                sources = {
+                    files = {
+                        hidden = true, -- Afficher les fichiers cachés (respecte .gitignore)
+                    },
+                },
             },
-            renderer = {
-                group_empty = true,
+            explorer = { enabled = true },
+            indent = { enabled = true },
+            lazygit = { enabled = true },
+        },
+        keys = {
+            -- Picker (remplace Telescope)
+            { "<C-p>", function() Snacks.picker.files() end, desc = "Find files" },
+            { "<leader>p", function() Snacks.picker.buffers() end, desc = "Find buffers" },
+            { "<leader>g", function() Snacks.picker.grep() end, desc = "Live grep" },
+            { "<leader>fh", function() Snacks.picker.help() end, desc = "Help tags" },
+            { "<leader>fd", function() Snacks.picker.diagnostics() end, desc = "Diagnostics" },
+            { "<leader>fr", function() Snacks.picker.lsp_references() end, desc = "LSP references" },
+            { "<leader>fs", function() Snacks.picker.lsp_symbols() end, desc = "Document symbols" },
+            -- Buffers (remplace BufExplorer)
+            { "<F12>", function() Snacks.picker.buffers() end, desc = "Buffer list" },
+            { "<leader>b", function() Snacks.picker.buffers() end, desc = "Buffer list" },
+            -- Explorer (remplace NvimTree)
+            { "<F9>", function() Snacks.explorer() end, desc = "Toggle explorer" },
+            {
+                "<leader><Tab>",
+                function()
+                    local ft = vim.bo.filetype
+                    if ft == "snacks_picker_list" or ft == "snacks_picker_input" then
+                        -- Dans l'explorer : retourner au fichier
+                        local explorer = Snacks.picker.get({ source = "explorer" })[1]
+                        if explorer and vim.api.nvim_win_is_valid(explorer.main) then
+                            vim.api.nvim_set_current_win(explorer.main)
+                        end
+                    else
+                        -- Ailleurs : révéler le fichier dans l'explorer
+                        Snacks.explorer.reveal()
+                    end
+                end,
+                desc = "Explorer: reveal / retour fichier",
             },
-            filters = {
-                dotfiles = false,
-            },
+            -- LazyGit
+            { "<leader>lg", function() Snacks.lazygit() end, desc = "LazyGit" },
         },
     },
 
-    -- Bufferline (gestion des buffers - affichage en haut)
+    -- Bufferline (onglets de buffers en haut)
     {
         "akinsho/bufferline.nvim",
         version = "*",
@@ -220,7 +274,7 @@ require("lazy").setup({
                 show_close_icon = false,
                 offsets = {
                     {
-                        filetype = "NvimTree",
+                        filetype = "snacks_picker_list", -- Explorer Snacks (ex-NvimTree)
                         text = "File Explorer",
                         text_align = "center",
                         separator = true,
@@ -230,16 +284,7 @@ require("lazy").setup({
         },
     },
 
-    -- BufExplorer (gestion de buffers - workflow Vim)
-    {
-        "jlanzarotta/bufexplorer",
-        keys = {
-            { "<F12>", "<cmd>BufExplorer<cr>", desc = "Buffer Explorer" },
-            { "<leader>b", "<cmd>BufExplorer<cr>", desc = "Buffer Explorer" },
-        },
-    },
-
-    -- Lualine (statusline - remplace vim-airline)
+    -- Lualine (statusline)
     {
         "nvim-lualine/lualine.nvim",
         dependencies = { "nvim-tree/nvim-web-devicons" },
@@ -250,7 +295,7 @@ require("lazy").setup({
         },
     },
 
-    -- Git signs (remplace vim-gitgutter)
+    -- Git signs (hunks dans la gouttière)
     {
         "lewis6991/gitsigns.nvim",
         opts = {
@@ -264,158 +309,35 @@ require("lazy").setup({
         },
     },
 
-    -- Fugitive (git)
+    -- Fugitive (git dans le buffer : :Git blame, :Gdiffsplit...)
     "tpope/vim-fugitive",
 
-    -- Comment (remplace nerdcommenter)
+    -- Leap (navigation rapide, remplace vim-sneak)
     {
-        "numToStr/Comment.nvim",
+        url = "https://codeberg.org/andyg/leap.nvim",
         keys = {
-            { "<leader>c<leader>", mode = { "n", "v" }, desc = "Toggle comment" },
+            { "s", "<Plug>(leap)", mode = { "n", "x", "o" }, desc = "Leap" },
+            { "S", "<Plug>(leap-from-window)", mode = "n", desc = "Leap from window" },
         },
-        config = function()
-            require("Comment").setup()
-            -- Mapping personnalisé pour <leader>c<leader>
-            vim.keymap.set("n", "<leader>c<leader>", function()
-                return vim.api.nvim_get_vvar("count") == 0 and "<Plug>(comment_toggle_linewise_current)"
-                    or "<Plug>(comment_toggle_linewise_count)"
-            end, { expr = true, silent = true, desc = "Toggle comment line" })
-
-            vim.keymap.set(
-                "v",
-                "<leader>c<leader>",
-                "<Plug>(comment_toggle_linewise_visual)",
-                { silent = true, desc = "Toggle comment selection" }
-            )
-        end,
     },
 
-    -- Telescope (fuzzy finder)
+    -- Diagnostics inline (ligne du curseur, preset fantôme)
     {
-        "nvim-telescope/telescope.nvim",
-        tag = "0.1.8",
-        dependencies = { "nvim-lua/plenary.nvim" },
-        keys = {
-            { "<C-p>", "<cmd>Telescope find_files<cr>", desc = "Find files" },
-            { "<leader>p", "<cmd>Telescope buffers<cr>", desc = "Find buffers" },
-            { "<leader>g", "<cmd>Telescope live_grep<cr>", desc = "Live grep" },
-            { "<leader>fh", "<cmd>Telescope help_tags<cr>", desc = "Help tags" },
-            { "<leader>fd", "<cmd>Telescope diagnostics<cr>", desc = "Diagnostics" },
-            { "<leader>fr", "<cmd>Telescope lsp_references<cr>", desc = "LSP references" },
-            { "<leader>fs", "<cmd>Telescope lsp_document_symbols<cr>", desc = "Document symbols" },
-        },
+        "rachartier/tiny-inline-diagnostic.nvim",
+        event = "VeryLazy",
         opts = {
-            defaults = {
-                layout_strategy = "horizontal",
-                layout_config = {
-                    horizontal = {
-                        preview_width = 0.6,
-                    },
-                },
-                mappings = {
-                    i = {
-                        ["<C-j>"] = "move_selection_next",
-                        ["<C-k>"] = "move_selection_previous",
-                    },
-                },
-                -- Filtrer les dossiers et fichiers inutiles
-                file_ignore_patterns = {
-                    "^.git/", -- Dossier git
-                    "node_modules/", -- Dépendances Node.js
-                    "%.lock", -- Fichiers lock (package-lock.json, etc.)
-                    "__pycache__/", -- Cache Python
-                    "%.pyc", -- Bytecode Python
-                    "build/", -- Build directories
-                    "dist/",
-                    "target/", -- Rust build
-                    ".cache/",
-                    "%.min%.js", -- JS minifié
-                    "%.min%.css", -- CSS minifié
-                },
-            },
-            pickers = {
-                find_files = {
-                    hidden = true, -- Afficher les fichiers cachés (., .., .config, etc.)
-                    -- Mais respecte file_ignore_patterns
-                },
+            preset = "ghost",
+            options = {
+                multilines = { enabled = true },
             },
         },
     },
 
     -- Autopairs (fermeture automatique des parenthèses, quotes, etc.)
+    -- L'intégration avec la complétion est gérée par blink.cmp (auto_brackets)
     {
         "windwp/nvim-autopairs",
         event = "InsertEnter",
-        config = function()
-            require("nvim-autopairs").setup({})
-
-            -- Intégration avec nvim-cmp
-            local cmp_autopairs = require("nvim-autopairs.completion.cmp")
-            local cmp = require("cmp")
-            cmp.event:on("confirm_done", cmp_autopairs.on_confirm_done())
-        end,
-    },
-
-    -- Harpoon (navigation rapide entre fichiers favoris)
-    {
-        "ThePrimeagen/harpoon",
-        branch = "harpoon2",
-        dependencies = { "nvim-lua/plenary.nvim" },
-        config = function()
-            local harpoon = require("harpoon")
-            harpoon:setup()
-
-            -- Mappings
-            vim.keymap.set("n", "<leader>a", function()
-                harpoon:list():add()
-            end, { desc = "Harpoon: Add file" })
-            vim.keymap.set("n", "<leader>h", function()
-                harpoon.ui:toggle_quick_menu(harpoon:list())
-            end, { desc = "Harpoon: Toggle menu" })
-
-            -- Navigation rapide (fichiers 1-4)
-            vim.keymap.set("n", "<leader>1", function()
-                harpoon:list():select(1)
-            end, { desc = "Harpoon: File 1" })
-            vim.keymap.set("n", "<leader>2", function()
-                harpoon:list():select(2)
-            end, { desc = "Harpoon: File 2" })
-            vim.keymap.set("n", "<leader>3", function()
-                harpoon:list():select(3)
-            end, { desc = "Harpoon: File 3" })
-            vim.keymap.set("n", "<leader>4", function()
-                harpoon:list():select(4)
-            end, { desc = "Harpoon: File 4" })
-
-            -- Navigation précédent/suivant
-            vim.keymap.set("n", "<C-S-P>", function()
-                harpoon:list():prev()
-            end, { desc = "Harpoon: Previous" })
-            vim.keymap.set("n", "<C-S-N>", function()
-                harpoon:list():next()
-            end, { desc = "Harpoon: Next" })
-        end,
-    },
-
-    -- Trouble (diagnostics, quickfix, LSP)
-    {
-        "folke/trouble.nvim",
-        dependencies = { "nvim-tree/nvim-web-devicons" },
-        keys = {
-            { "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", desc = "Trouble: Toggle diagnostics" },
-            {
-                "<leader>xd",
-                "<cmd>Trouble diagnostics toggle filter.buf=0<cr>",
-                desc = "Trouble: Document diagnostics",
-            },
-            { "<leader>xs", "<cmd>Trouble symbols toggle focus=false<cr>", desc = "Trouble: Symbols" },
-            {
-                "<leader>xl",
-                "<cmd>Trouble lsp toggle focus=false win.position=right<cr>",
-                desc = "Trouble: LSP definitions/references",
-            },
-            { "<leader>xq", "<cmd>Trouble qflist toggle<cr>", desc = "Trouble: Quickfix" },
-        },
         opts = {},
     },
 
@@ -433,8 +355,8 @@ require("lazy").setup({
             -- Groupes de raccourcis
             wk.add({
                 { "<leader>f", group = "Find/Format" },
-                { "<leader>x", group = "Trouble" },
                 { "<leader>c", group = "Comment" },
+                { "<leader>l", group = "LazyGit" },
             })
         end,
     },
@@ -448,7 +370,7 @@ require("lazy").setup({
             {
                 "<leader>f",
                 function()
-                    require("conform").format({ async = true, lsp_fallback = true })
+                    require("conform").format({ async = true, lsp_format = "fallback" })
                 end,
                 mode = "",
                 desc = "Format buffer",
@@ -483,13 +405,12 @@ require("lazy").setup({
         },
     },
 
-    -- Colorizer (affiche les couleurs CSS)
+    -- Colorizer (affiche les couleurs CSS) - fork NvChad maintenu
     {
-        "norcalli/nvim-colorizer.lua",
-        config = function()
-            require("colorizer").setup({
-                "*", -- Activer pour tous les filetypes
-            }, {
+        "NvChad/nvim-colorizer.lua",
+        opts = {
+            filetypes = { "*" }, -- Activer pour tous les filetypes
+            user_default_options = {
                 RGB = true, -- #RGB
                 RRGGBB = true, -- #RRGGBB
                 names = true, -- "red", "blue", etc.
@@ -498,176 +419,77 @@ require("lazy").setup({
                 hsl_fn = true, -- hsl(), hsla()
                 css = true, -- CSS colors
                 css_fn = true, -- CSS functions
-            })
-        end,
-    },
-
-    -- Sneak (navigation rapide)
-    {
-        "justinmk/vim-sneak",
-        config = function()
-            vim.g["sneak#label"] = 1
-        end,
-    },
-
-    -- Indent guides
-    {
-        "lukas-reineke/indent-blankline.nvim",
-        main = "ibl",
-        opts = {
-            indent = {
-                char = "│",
-            },
-            scope = {
-                enabled = false,
             },
         },
     },
 
-    -- Treesitter (syntaxe moderne)
+    -- Treesitter (syntaxe moderne) - branche main (master est archivée depuis mai 2025)
     {
         "nvim-treesitter/nvim-treesitter",
+        branch = "main",
         build = ":TSUpdate",
+        lazy = false,
         config = function()
-            local ok, configs = pcall(require, "nvim-treesitter.configs")
-            if not ok then
-                return
-            end
-            configs.setup({
-                ensure_installed = { "lua", "vim", "vimdoc", "javascript", "typescript", "html", "css", "python", "java" },
-                auto_install = true,
-                highlight = {
-                    enable = true,
-                },
-                indent = {
-                    enable = true,
-                },
-            })
-
-            -- Fix markdown sous Neovim 0.12 : la branche master de nvim-treesitter
-            -- est archivee (mai 2025) et sa query d'injections markdown utilise la
-            -- directive custom `#set-lang-from-info-string!` sur les blocs ```lang.
-            -- Le runtime treesitter de 0.12 crashe dessus (get_range -> node:range()
-            -- sur un node nil) a l'ouverture d'un .md. On remplace l'injection des
-            -- blocs de code par la capture standard @injection.language (version du
-            -- runtime), via query.set (le loader de nvim-treesitter ignore after/).
-            vim.treesitter.query.set(
+            require("nvim-treesitter").setup()
+            -- Installation incrémentale : ne compile que les parsers manquants
+            -- (nécessite le CLI tree-sitter : brew install tree-sitter)
+            require("nvim-treesitter").install({
+                "lua",
+                "vim",
+                "vimdoc",
+                "javascript",
+                "typescript",
+                "html",
+                "css",
+                "python",
+                "java",
+                "bash",
+                "json",
+                "yaml",
+                "toml",
+                "xml",
                 "markdown",
-                "injections",
-                [[
-(fenced_code_block
-  (info_string
-    (language) @injection.language)
-  (code_fence_content) @injection.content)
-
-((html_block) @injection.content
-  (#set! injection.language "html")
-  (#set! injection.combined)
-  (#set! injection.include-children))
-
-((minus_metadata) @injection.content
-  (#set! injection.language "yaml")
-  (#offset! @injection.content 1 0 -1 0)
-  (#set! injection.include-children))
-
-((plus_metadata) @injection.content
-  (#set! injection.language "toml")
-  (#offset! @injection.content 1 0 -1 0)
-  (#set! injection.include-children))
-
-([
-  (inline)
-  (pipe_table_cell)
-] @injection.content
-  (#set! injection.language "markdown_inline"))
-]]
-            )
+                "markdown_inline",
+                "rust",
+                "svelte",
+                "vue",
+                "regex",
+            })
+            -- Le highlight se lance au FileType (pas de module configs sur main)
+            vim.api.nvim_create_autocmd("FileType", {
+                callback = function()
+                    pcall(vim.treesitter.start)
+                end,
+            })
         end,
     },
 
-    -- nvim-cmp (autocomplétion moderne)
+    -- blink.cmp (autocomplétion : remplace nvim-cmp + LuaSnip + sources)
     {
-        "hrsh7th/nvim-cmp",
-        dependencies = {
-            "hrsh7th/cmp-nvim-lsp", -- Source LSP
-            "hrsh7th/cmp-buffer", -- Source buffer
-            "hrsh7th/cmp-path", -- Source paths
-            "L3MON4D3/LuaSnip", -- Moteur de snippets
-            "saadparwaiz1/cmp_luasnip", -- Source snippets pour cmp
-            "rafamadriz/friendly-snippets", -- Collection de snippets
+        "saghen/blink.cmp",
+        version = "*", -- Binaire fuzzy précompilé, pas besoin de cargo
+        dependencies = { "rafamadriz/friendly-snippets" },
+        opts = {
+            keymap = {
+                preset = "default",
+                -- Tab : naviguer OU sauter dans le snippet
+                ["<Tab>"] = { "select_next", "snippet_forward", "fallback" },
+                ["<S-Tab>"] = { "select_prev", "snippet_backward", "fallback" },
+                ["<CR>"] = { "select_and_accept", "fallback" },
+                ["<C-Space>"] = { "show", "fallback" },
+                ["<C-e>"] = { "cancel", "fallback" },
+            },
+            completion = {
+                accept = {
+                    auto_brackets = { enabled = true }, -- Intégration autopairs native
+                },
+                documentation = { auto_show = true },
+            },
+            sources = {
+                default = { "lsp", "path", "snippets", "buffer" },
+            },
         },
-        config = function()
-            local cmp = require("cmp")
-            local luasnip = require("luasnip")
-
-            -- Charger les snippets friendly-snippets
-            require("luasnip.loaders.from_vscode").lazy_load()
-
-            cmp.setup({
-                -- Moteur de snippets (requis pour les completions LSP de type snippet)
-                snippet = {
-                    expand = function(args)
-                        luasnip.lsp_expand(args.body)
-                    end,
-                },
-
-                -- Fenêtre de complétion
-                window = {
-                    completion = cmp.config.window.bordered(),
-                    documentation = cmp.config.window.bordered(),
-                },
-
-                -- Mappings
-                mapping = cmp.mapping.preset.insert({
-                    -- Tab : naviguer dans cmp OU sauter dans le snippet
-                    ["<Tab>"] = cmp.mapping(function(fallback)
-                        if cmp.visible() then
-                            cmp.select_next_item()
-                        elseif luasnip.expand_or_jumpable() then
-                            luasnip.expand_or_jump()
-                        else
-                            fallback()
-                        end
-                    end, { "i", "s" }),
-                    ["<S-Tab>"] = cmp.mapping(function(fallback)
-                        if cmp.visible() then
-                            cmp.select_prev_item()
-                        elseif luasnip.jumpable(-1) then
-                            luasnip.jump(-1)
-                        else
-                            fallback()
-                        end
-                    end, { "i", "s" }),
-                    ["<C-b>"] = cmp.mapping.scroll_docs(-4),
-                    ["<C-f>"] = cmp.mapping.scroll_docs(4),
-                    ["<C-Space>"] = cmp.mapping.complete(),
-                    ["<C-e>"] = cmp.mapping.abort(),
-                    ["<CR>"] = cmp.mapping.confirm({ select = true }),
-                }),
-
-                -- Sources (ordre = priorité)
-                sources = cmp.config.sources({
-                    { name = "nvim_lsp" }, -- LSP en priorité
-                    { name = "luasnip" }, -- Snippets
-                    { name = "buffer" }, -- Mots du buffer
-                    { name = "path" }, -- Chemins de fichiers
-                }),
-
-                -- Formatage des items
-                formatting = {
-                    format = function(entry, vim_item)
-                        vim_item.menu = ({
-                            nvim_lsp = "[LSP]",
-                            luasnip = "[Snippet]",
-                            buffer = "[Buffer]",
-                            path = "[Path]",
-                        })[entry.source.name]
-                        return vim_item
-                    end,
-                },
-
-            })
-        end,
+        opts_extend = { "sources.default" },
     },
 
     -- Java LSP (nvim-jdtls gère les spécificités de jdtls : workspace, project detection)
@@ -678,10 +500,10 @@ require("lazy").setup({
 
     {
         "neovim/nvim-lspconfig",
-        dependencies = { "hrsh7th/cmp-nvim-lsp" },
+        dependencies = { "saghen/blink.cmp" },
         config = function()
-            -- Capabilities pour nvim-cmp (meilleure autocomplétion)
-            local capabilities = require("cmp_nvim_lsp").default_capabilities()
+            -- Capabilities pour blink.cmp (meilleure autocomplétion)
+            local capabilities = require("blink.cmp").get_lsp_capabilities()
 
             -- Appliquer les capabilities à tous les serveurs LSP
             vim.lsp.config("*", { capabilities = capabilities })
@@ -693,8 +515,21 @@ require("lazy").setup({
                 end,
             })
 
+            -- Config spécifique à lua_ls : connaître l'API vim.* (complétion + doc)
+            vim.lsp.config("lua_ls", {
+                settings = {
+                    Lua = {
+                        runtime = { version = "LuaJIT" },
+                        workspace = {
+                            checkThirdParty = false,
+                            library = vim.api.nvim_get_runtime_file("", true),
+                        },
+                    },
+                },
+            })
+
             -- Activer tous les serveurs LSP
-            vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff" })
+            vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff", "lua_ls" })
         end,
     },
 })
@@ -769,14 +604,14 @@ vim.api.nvim_create_autocmd("FileType", {
         end
 
         -- Config native selon l'OS
-        local config_dir = jdtls_dir .. "/config_linux"
+        local config_dir = jdtls_dir .. (vim.fn.has("macunix") == 1 and "/config_mac" or "/config_linux")
 
         -- Workspace isolé par projet (évite les conflits entre projets)
         local project_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":p:h:t")
         local workspace_dir = vim.fn.expand("~/.cache/jdtls/workspaces/") .. project_name
 
-        -- Capabilities depuis nvim-cmp
-        local capabilities = require("cmp_nvim_lsp").default_capabilities()
+        -- Capabilities depuis blink.cmp
+        local capabilities = require("blink.cmp").get_lsp_capabilities()
 
         jdtls.start_or_attach({
             cmd = {
