@@ -26,7 +26,14 @@ echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Export configuration Neovim (offline)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
-EXPORT_DIR="nvim-config-offline"
+# Chemins ancrés sur le dépôt, pas sur le cwd : le script est lançable depuis
+# n'importe où, et les artefacts atterrissent dans dist/ plutôt qu'à la racine.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+DIST_DIR="$REPO_DIR/dist"
+
+EXPORT_DIR="$DIST_DIR/nvim-config-offline"
+ARCHIVE="$DIST_DIR/nvim-config-offline.tar.gz"
 PLUGINS_DIR="$EXPORT_DIR/plugins"
 LAZY_DIR="$HOME/.local/share/nvim/lazy"
 PARSER_DIR="$HOME/.local/share/nvim/site/parser"
@@ -39,14 +46,15 @@ fi
 # Créer le dossier d'export
 echo -e "${GREEN}[1/5]${NC} Création de la structure d'export..."
 rm -rf "$EXPORT_DIR"
+mkdir -p "$DIST_DIR"
 mkdir -p "$PLUGINS_DIR"
 mkdir -p "$EXPORT_DIR/config"
 
 # Copier les fichiers de configuration
 echo -e "${GREEN}[2/5]${NC} Copie des fichiers de configuration..."
-cp init.lua "$EXPORT_DIR/config/"
-if [ -f "lazy-lock.json" ]; then
-    cp lazy-lock.json "$EXPORT_DIR/config/"
+cp "$REPO_DIR/init.lua" "$EXPORT_DIR/config/"
+if [ -f "$REPO_DIR/lazy-lock.json" ]; then
+    cp "$REPO_DIR/lazy-lock.json" "$EXPORT_DIR/config/"
 fi
 
 # Copier les plugins tels qu'installés (inclut le binaire précompilé de blink.cmp)
@@ -461,10 +469,11 @@ README
 
 # Créer l'archive
 echo -e "\n${GREEN}Création de l'archive...${NC}"
-tar -czf nvim-config-offline.tar.gz "$EXPORT_DIR"
+# -C : sans ça, le chemin absolu de EXPORT_DIR serait gravé dans l'archive.
+tar -czf "$ARCHIVE" -C "$DIST_DIR" "$(basename "$EXPORT_DIR")"
 
 # Afficher les résultats
-ARCHIVE_SIZE=$(du -h nvim-config-offline.tar.gz | cut -f1)
+ARCHIVE_SIZE=$(du -h "$ARCHIVE" | cut -f1)
 DIR_SIZE=$(du -sh "$EXPORT_DIR" | cut -f1)
 
 echo -e "\n${GREEN}========================================${NC}"
@@ -472,8 +481,8 @@ echo -e "${GREEN}Export terminé avec succès !${NC}"
 echo -e "${GREEN}========================================${NC}\n"
 
 echo -e "${BLUE}Fichiers créés:${NC}"
-echo -e "  Archive:  ${GREEN}nvim-config-offline.tar.gz${NC} ($ARCHIVE_SIZE)"
-echo -e "  Dossier:  ${GREEN}$EXPORT_DIR/${NC} ($DIR_SIZE)"
+echo -e "  Archive:  ${GREEN}${ARCHIVE#"$REPO_DIR"/}${NC} ($ARCHIVE_SIZE)"
+echo -e "  Dossier:  ${GREEN}${EXPORT_DIR#"$REPO_DIR"/}/${NC} ($DIR_SIZE)"
 
 echo -e "\n${BLUE}Contenu:${NC}"
 echo -e "  • Configuration Neovim (init.lua, lazy-lock.json)"

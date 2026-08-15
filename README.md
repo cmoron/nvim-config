@@ -143,12 +143,13 @@ which lua-language-server pyright bash-language-server typescript-language-serve
 
 ### Installation offline
 
-Le script `export-offline.sh` génère un bundle complet (plugins + binaire blink.cmp +
-parsers Treesitter pré-compilés) transférable sur une machine sans connexion :
+Le script `scripts/export-offline.sh` génère un bundle complet (plugins + binaire
+blink.cmp + parsers Treesitter pré-compilés + serveur Java jdtls) transférable sur
+une machine sans connexion :
 
 ```bash
-./export-offline.sh
-# → nvim-config-offline.tar.gz
+scripts/export-offline.sh
+# → dist/nvim-config-offline.tar.gz
 ```
 
 ⚠️ Les binaires sont compilés pour l'architecture de la machine d'export :
