@@ -380,7 +380,18 @@ require("lazy").setup({
             {
                 "<leader>f",
                 function()
-                    require("conform").format({ async = true, lsp_format = "fallback" })
+                    -- ["*"] donne trim_whitespace à tout buffer, donc conform
+                    -- considère qu'un formatter existe toujours et "fallback"
+                    -- ne se déclenche jamais (cf. conform/init.lua, branche LSP
+                    -- conditionnée à `not any_formatters`). On délègue donc au
+                    -- serveur LSP dès qu'un filetype n'a pas de formatter dédié
+                    -- — valable pour tout langage, sans liste à maintenir.
+                    local conform = require("conform")
+                    local has_own = conform.formatters_by_ft[vim.bo.filetype] ~= nil
+                    conform.format({
+                        async = true,
+                        lsp_format = has_own and "never" or "prefer",
+                    })
                 end,
                 mode = "",
                 desc = "Format buffer",
