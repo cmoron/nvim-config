@@ -1,0 +1,637 @@
+<title>Java dans Neovim — pense-bête</title>
+<style>
+  /* Palette dérivée de gruvbox, le colorscheme réellement chargé par init.lua. */
+  :root {
+    --ground: #fbf1c7;
+    --surface: #f4e8be;
+    --sunken: #ecdcb0;
+    --ink: #3c3836;
+    --ink-dim: #6f6558;
+    --ink-faint: #98917f;
+    --rule: #ddcba4;
+    --accent: #427b58;
+    --accent-sf: #e3ecdf;
+    --warn: #af3a03;
+    --warn-sf: #f7e3d2;
+    --key-face: #fffcf0;
+    --key-edge: #cdb994;
+    --shadow: rgba(60, 56, 54, 0.09);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #282828;
+      --surface: #32302f;
+      --sunken: #1f1e1d;
+      --ink: #ebdbb2;
+      --ink-dim: #bdae93;
+      --ink-faint: #7c6f64;
+      --rule: #4b4643;
+      --accent: #8ec07c;
+      --accent-sf: #303a30;
+      --warn: #fe8019;
+      --warn-sf: #3b2c1e;
+      --key-face: #3c3836;
+      --key-edge: #1d1c1b;
+      --shadow: rgba(0, 0, 0, 0.32);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #282828;
+    --surface: #32302f;
+    --sunken: #1f1e1d;
+    --ink: #ebdbb2;
+    --ink-dim: #bdae93;
+    --ink-faint: #7c6f64;
+    --rule: #4b4643;
+    --accent: #8ec07c;
+    --accent-sf: #303a30;
+    --warn: #fe8019;
+    --warn-sf: #3b2c1e;
+    --key-face: #3c3836;
+    --key-edge: #1d1c1b;
+    --shadow: rgba(0, 0, 0, 0.32);
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family:
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    margin: 0;
+    padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1rem, 4vw, 2rem) 5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 68rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2.75rem;
+  }
+
+  /* ---- en-tête ---- */
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .eyebrow {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+  }
+  h1 {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: clamp(1.7rem, 4.4vw, 2.6rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0;
+    color: var(--ink);
+  }
+  .standfirst {
+    margin: 0;
+    max-width: 46rem;
+    color: var(--ink-dim);
+    font-size: 1.02rem;
+  }
+
+  /* ---- sections ---- */
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  h2 {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin: 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--rule);
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+  }
+  h2 .tally {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+  }
+
+  .rows {
+    display: flex;
+    flex-direction: column;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(10.5rem, 15rem) 1fr minmax(7rem, 11rem);
+    gap: 0.35rem 1.25rem;
+    align-items: baseline;
+    padding: 0.55rem 0.35rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .row:last-child {
+    border-bottom: 0;
+  }
+  .keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+  }
+  .what {
+    color: var(--ink);
+  }
+  .what em {
+    color: var(--ink-dim);
+    font-style: normal;
+  }
+  .idea {
+    text-align: right;
+    color: var(--ink-faint);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .idea::before {
+    content: "IntelliJ ";
+    color: var(--ink-faint);
+    opacity: 0.6;
+  }
+  .idea.none {
+    font-style: italic;
+  }
+  .idea.none::before {
+    content: "";
+  }
+
+  kbd {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    line-height: 1;
+    background: var(--key-face);
+    color: var(--ink);
+    border: 1px solid var(--key-edge);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0.28rem 0.42rem;
+    white-space: nowrap;
+    box-shadow: 0 1px 0 var(--shadow);
+  }
+  .sep {
+    color: var(--ink-faint);
+    font-size: 0.78rem;
+    padding: 0 0.1rem;
+  }
+
+  code {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.84em;
+    background: var(--sunken);
+    color: var(--ink);
+    padding: 0.1rem 0.32rem;
+    border-radius: 3px;
+  }
+  pre {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--sunken);
+    color: var(--ink);
+    padding: 0.9rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+    overflow-x: auto;
+    margin: 0;
+    font-size: 0.86rem;
+    line-height: 1.6;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 1em;
+  }
+
+  /* ---- menus servis par le serveur ---- */
+  .menu {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 5px;
+    padding: 0.8rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .menu h3 {
+    margin: 0;
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .menu ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+  }
+  .menu li {
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--ink-dim);
+    background: var(--ground);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.22rem 0.45rem;
+  }
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+  }
+
+  /* ---- pièges / manques ---- */
+  .flag {
+    background: var(--warn-sf);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--warn);
+    border-radius: 5px;
+    padding: 0.8rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .flag h3 {
+    margin: 0;
+    font-size: 0.74rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--warn);
+    font-weight: 600;
+    font-family:
+      ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .flag ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .flag li {
+    color: var(--ink);
+    font-size: 0.92rem;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+    color: var(--ink-faint);
+    font-size: 0.82rem;
+  }
+
+  @media (max-width: 46rem) {
+    .row {
+      grid-template-columns: 1fr;
+      gap: 0.3rem;
+      padding: 0.7rem 0.2rem;
+    }
+    .idea {
+      text-align: left;
+    }
+    .pair {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">nvim-config · jdtls 1.61 · vérifié sur tsp-solver</p>
+    <h1>Java dans Neovim</h1>
+    <p class="standfirst">
+      Les gestes du quotidien, avec leur équivalent IntelliJ en regard — le
+      temps que les réflexes se déplacent. Tout ce qui suit a été testé sur ce
+      poste ; ce qui manque encore est signalé en fin de page.
+    </p>
+  </header>
+
+  <section>
+    <h2>Avant d'ouvrir</h2>
+    <pre><code>cd ~/src/tsp-solver &amp;&amp; nvim src/main/java/com/tsp/Main.java</code></pre>
+    <p class="standfirst">
+      Le <code>cd</code> n'est pas cosmétique : <code>init.lua:642</code> nomme
+      le workspace jdtls d'après <code>getcwd()</code>. Lancer nvim depuis
+      ailleurs mélange les workspaces entre projets. <code>java</code> doit être
+      dans le <code>PATH</code> — c'est ton <code>.zshrc</code> qui s'en charge.
+    </p>
+  </section>
+
+  <section>
+    <h2>Naviguer</h2>
+    <div class="rows">
+      <div class="row">
+        <span class="keys"
+          ><kbd>Ctrl</kbd><span class="sep">+</span><kbd>p</kbd></span
+        >
+        <span class="what"
+          >Ouvrir un fichier — recherche floue sur tout le projet</span
+        >
+        <span class="idea">⇧⇧</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>g</kbd></span>
+        <span class="what"
+          >Chercher un texte dans tout le projet <em>(live grep)</em></span
+        >
+        <span class="idea">Ctrl+⇧+F</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>gd</kbd></span>
+        <span class="what"
+          >Aller à la définition du symbole sous le curseur</span
+        >
+        <span class="idea">Ctrl+B</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>Ctrl</kbd><span class="sep">+</span><kbd>o</kbd
+          ><span class="sep">/</span><kbd>Ctrl</kbd><span class="sep">+</span
+          ><kbd>i</kbd></span
+        >
+        <span class="what">Reculer / avancer dans l'historique de saut</span>
+        <span class="idea">Ctrl+Alt+←→</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>gO</kbd></span>
+        <span class="what">Plan du fichier — la liste des symboles</span>
+        <span class="idea">Ctrl+F12</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>f</kbd><kbd>s</kbd></span>
+        <span class="what">Le même plan, mais filtrable au clavier</span>
+        <span class="idea none">—</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>F9</kbd><span class="sep">·</span><kbd>Espace</kbd
+          ><kbd>Tab</kbd></span
+        >
+        <span class="what"
+          >Explorateur de fichiers · y révéler le fichier courant</span
+        >
+        <span class="idea">Alt+1</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Comprendre</h2>
+    <div class="rows">
+      <div class="row">
+        <span class="keys"><kbd>H</kbd></span>
+        <span class="what"
+          >Documentation et signature du symbole
+          <em>— pas <kbd>K</kbd>, qui scrolle</em></span
+        >
+        <span class="idea">Ctrl+Q</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>grr</kbd></span>
+        <span class="what">Toutes les références du symbole</span>
+        <span class="idea">Alt+F7</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>gri</kbd></span>
+        <span class="what"
+          >Les implémentations — utile sur une interface comme
+          <code>TspSolver</code></span
+        >
+        <span class="idea">Ctrl+Alt+B</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>f</kbd><kbd>r</kbd></span>
+        <span class="what">Les références, en picker filtrable</span>
+        <span class="idea none">—</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>
+      Modifier <span class="tally">une seule touche, tous les langages</span>
+    </h2>
+    <div class="rows">
+      <div class="row">
+        <span class="keys"
+          ><kbd>Espace</kbd><kbd>c</kbd><kbd>a</kbd><span class="sep">ou</span
+          ><kbd>gra</kbd></span
+        >
+        <span class="what"
+          >Code actions — le menu dépend du curseur et de la sélection</span
+        >
+        <span class="idea">Alt+Entrée</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>v</kbd><span class="sep">puis</span><kbd>Espace</kbd><kbd>c</kbd
+          ><kbd>a</kbd></span
+        >
+        <span class="what"
+          >Idem sur une sélection — c'est là que vivent les extractions</span
+        >
+        <span class="idea">Ctrl+Alt+V / M</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>Espace</kbd><kbd>r</kbd><kbd>n</kbd><span class="sep">ou</span
+          ><kbd>grn</kbd></span
+        >
+        <span class="what">Renommer partout dans le projet</span>
+        <span class="idea">⇧F6</span>
+      </div>
+    </div>
+
+    <div class="pair">
+      <div class="menu">
+        <h3>Curseur dans la classe</h3>
+        <ul>
+          <li>Organize imports</li>
+          <li>Generate Getters</li>
+          <li>Generate Constructors</li>
+          <li>hashCode() &amp; equals()</li>
+          <li>Generate toString()</li>
+          <li>Override/Implement Methods</li>
+          <li>Modifiers to final</li>
+        </ul>
+      </div>
+      <div class="menu">
+        <h3>Sur une expression sélectionnée</h3>
+        <ul>
+          <li>Extract to local variable</li>
+          <li>…replace all occurrences</li>
+          <li>Extract to constant</li>
+          <li>Extract to field</li>
+          <li>Extract to method</li>
+          <li>Introduce Parameter</li>
+          <li>Surround with try/catch</li>
+          <li>Change signature</li>
+          <li>Make Static</li>
+          <li>Move…</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vérifier</h2>
+    <div class="rows">
+      <div class="row">
+        <span class="keys"
+          ><kbd>Espace</kbd><kbd>n</kbd><span class="sep">/</span
+          ><kbd>Espace</kbd><kbd>⇧N</kbd></span
+        >
+        <span class="what">Diagnostic suivant / précédent</span>
+        <span class="idea">F2 / ⇧F2</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>e</kbd></span>
+        <span class="what">Le détail de l'erreur en flottant</span>
+        <span class="idea none">—</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>f</kbd><kbd>d</kbd></span>
+        <span class="what">Tous les diagnostics du projet</span>
+        <span class="idea">Ctrl+Alt+⇧+I</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>f</kbd></span>
+        <span class="what"
+          >Formater le buffer — délégué à jdtls, pas de formatter externe</span
+        >
+        <span class="idea">Ctrl+Alt+L</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>:</kbd><code>w</code></span>
+        <span class="what"
+          >Sauvegarder — les imports inutilisés partent tout seuls
+          <em>(init.lua:668)</em></span
+        >
+        <span class="idea">Ctrl+Alt+O</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Buffers</h2>
+    <div class="rows">
+      <div class="row">
+        <span class="keys"
+          ><kbd>Tab</kbd><span class="sep">/</span><kbd>⇧Tab</kbd></span
+        >
+        <span class="what">Buffer suivant / précédent</span>
+        <span class="idea">Alt+→←</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>F12</kbd><span class="sep">·</span><kbd>Espace</kbd
+          ><kbd>p</kbd></span
+        >
+        <span class="what">La liste des buffers ouverts</span>
+        <span class="idea">Ctrl+E</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>Ctrl</kbd><span class="sep">+</span><kbd>x</kbd></span
+        >
+        <span class="what"
+          >Dans la liste : fermer le buffer visé, la liste reste ouverte</span
+        >
+        <span class="idea none">réflexe bufexplorer</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>x</kbd></span>
+        <span class="what"
+          >Fermer le buffer courant <em>en gardant le split</em></span
+        >
+        <span class="idea">Ctrl+F4</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Construire</h2>
+    <pre><code>:!mvn -q compile                    " compiler
+:!mvn -q package -DskipTests        " fat JAR → target/tsp-solver.jar
+:!java -jar target/tsp-solver.jar   " exécuter</code></pre>
+  </section>
+
+  <section>
+    <h2>Ce qui mord</h2>
+    <div class="flag">
+      <h3>Trois pièges</h3>
+      <ul>
+        <li>
+          <kbd>K</kbd> n'est <strong>pas</strong> le hover — il scrolle de 3
+          lignes. Le hover, c'est <kbd>H</kbd>.
+        </li>
+        <li>
+          Lancer nvim ailleurs que depuis la racine du projet donne un workspace
+          jdtls mal nommé.
+        </li>
+        <li>
+          jdtls met 2 à 3 secondes à s'attacher au premier fichier Java : les
+          diagnostics arrivent après.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pas encore là</h2>
+    <div class="flag">
+      <h3>Les deux vrais manques face à IntelliJ</h3>
+      <ul>
+        <li>
+          <strong>Débugger</strong> — ni <code>nvim-dap</code>, ni le bundle
+          <code>java-debug-adapter</code>. Aucun breakpoint possible
+          aujourd'hui.
+        </li>
+        <li>
+          <strong>Lanceur de tests</strong> — pas de
+          <code>vscode-java-test</code>, donc pas de « run test at cursor ».
+          <code>tsp-solver</code> n'a de toute façon aucun test pour l'instant.
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    Source : <code>~/src/nvim-config/docs/java-cheatsheet.html</code> —
+    versionné avec la config. Les raccourcis renvoient à <code>init.lua</code> ;
+    les menus sont ceux réellement retournés par jdtls&nbsp;1.61 sur tsp-solver.
+  </footer>
+</div>
