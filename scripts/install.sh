@@ -2,7 +2,9 @@
 # =============================================================================
 # install.sh — déploiement de la configuration Neovim (machine avec réseau)
 #
-# Pour une machine sans réseau, voir export-offline.sh à la racine du dépôt.
+# Pour une machine sans réseau, voir scripts/export-offline.sh.
+# Portable Linux / macOS : pas de GNU-isme (grep -P, readlink -f, mktemp sans
+# gabarit), et pas d'expansion de tableau vide, refusée par le bash 3.2 d'Apple.
 # =============================================================================
 
 set -euo pipefail
@@ -83,7 +85,7 @@ run() {
         return 0
     fi
     local log rc=0
-    log=$(mktemp)
+    log=$(tmpfile)
     "$@" >"$log" 2>&1 || rc=$?
     [[ $rc -ne 0 ]] && tail -8 "$log" | sed 's/^/      /'
     rm -f "$log"
@@ -91,6 +93,13 @@ run() {
 }
 
 has() { command -v "$1" &>/dev/null; }
+
+# readlink -f est absent des BSD antérieurs à macOS 13. Ces chemins sont
+# toujours des dossiers, donc cd -P suffit à résoudre les symlinks.
+abspath() { (cd -P "$1" 2>/dev/null && pwd) || printf '%s' "$1"; }
+
+# mktemp sans argument échoue sur BSD : on fournit un gabarit explicite.
+tmpfile() { mktemp "${TMPDIR:-/tmp}/nvim-install.XXXXXX"; }
 
 # Succès d'une installation : muet en dry-run, où rien n'a été installé.
 installed() { $DRY_RUN || ok "$1"; }
@@ -117,46 +126,46 @@ $DRY_RUN && info "mode dry-run : aucune modification ne sera écrite"
 step "Prérequis"
 # =============================================================================
 
-MISSING=()
+MISSING=""   # chaîne et non tableau : bash 3.2 + set -u
 
 if has nvim; then
-    NVIM_VER=$(nvim --version | head -1 | grep -oP '\d+\.\d+')
+    NVIM_VER=$(nvim --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
     if (( $(echo "$NVIM_VER" | cut -d. -f1) == 0 && $(echo "$NVIM_VER" | cut -d. -f2) < 11 )); then
         fail "Neovim $NVIM_VER — version 0.11+ requise"
-        MISSING+=("neovim>=0.11")
+        MISSING="$MISSING neovim>=0.11"
     else
         ok "Neovim $NVIM_VER"
     fi
 else
-    fail "Neovim non installé"; MISSING+=("neovim")
+    fail "Neovim non installé"; MISSING="$MISSING neovim"
 fi
 
-if has git; then ok "git"; else fail "git non installé"; MISSING+=("git"); fi
-if has rg; then ok "ripgrep"; else fail "ripgrep non installé"; MISSING+=("ripgrep"); fi
+if has git; then ok "git"; else fail "git non installé"; MISSING="$MISSING git"; fi
+if has rg; then ok "ripgrep"; else fail "ripgrep non installé"; MISSING="$MISSING ripgrep"; fi
 
 # nvim-treesitter branche main compile via `tree-sitter build`, sous-commande
 # absente avant 0.25 (dont la version packagée par apt). On teste la capacité,
 # pas le numéro de version.
 if ! has tree-sitter; then
     fail "tree-sitter absent — les parsers ne pourront pas être compilés"
-    MISSING+=("tree-sitter-cli")
+    MISSING="$MISSING tree-sitter-cli"
 elif ! tree-sitter build --help &>/dev/null; then
-    fail "tree-sitter $(tree-sitter --version | grep -oP '[\d.]+' | head -1) trop ancien (pas de sous-commande 'build')"
+    fail "tree-sitter $(tree-sitter --version | grep -oE '[0-9]+(\.[0-9]+)*' | head -1) trop ancien (pas de sous-commande 'build')"
     info "→ cargo install tree-sitter-cli, ou le binaire des releases GitHub"
-    MISSING+=("tree-sitter-cli>=0.25")
+    MISSING="$MISSING tree-sitter-cli>=0.25"
 else
-    ok "tree-sitter $(tree-sitter --version | grep -oP '[\d.]+' | head -1)"
+    ok "tree-sitter $(tree-sitter --version | grep -oE '[0-9]+(\.[0-9]+)*' | head -1)"
 fi
 
 if has bun; then ok "bun $(bun --version)"
 elif has node; then ok "node $(node --version)"
-else fail "Ni bun ni node — requis pour les LSP JS/TS"; MISSING+=("bun|nodejs"); fi
+else fail "Ni bun ni node — requis pour les LSP JS/TS"; MISSING="$MISSING bun|nodejs"; fi
 
 if has python3; then ok "python3"; else warn "python3 absent — LSP Python non fonctionnel"; fi
 
-if [[ ${#MISSING[@]} -gt 0 ]]; then
+if [ -n "$MISSING" ]; then
     echo ""
-    info "Paquets système manquants : ${MISSING[*]}"
+    info "Paquets système manquants :$MISSING"
     case "$PM" in
         apt)    info "  sudo apt install neovim git ripgrep nodejs npm" ;;
         dnf)    info "  sudo dnf install neovim git ripgrep nodejs npm" ;;
@@ -184,27 +193,28 @@ DEV_TOOLS=(
     "xmllint:format XML"
 )
 
-ABSENT=()
+ABSENT=""
+ABSENT_COUNT=0
 for entry in "${DEV_TOOLS[@]}"; do
     cmd="${entry%%:*}"; desc="${entry#*:}"
     if has "$cmd"; then
         ok "$(printf '%-28s' "$cmd") ${DIM}$desc${NC}"
     else
         warn "$(printf '%-28s' "$cmd") ${DIM}$desc${NC}"
-        ABSENT+=("$cmd")
+        ABSENT="$ABSENT $cmd"; ABSENT_COUNT=$((ABSENT_COUNT + 1))
     fi
 done
 
 if $CHECK_ONLY; then
     step "Résumé"
-    ok "$(( ${#DEV_TOOLS[@]} - ${#ABSENT[@]} ))/${#DEV_TOOLS[@]} outils présents"
-    [[ ${#ABSENT[@]} -gt 0 ]] && info "absents : ${ABSENT[*]}"
+    ok "$(( ${#DEV_TOOLS[@]} - ABSENT_COUNT ))/${#DEV_TOOLS[@]} outils présents"
+    [ -n "$ABSENT" ] && info "absents :$ABSENT"
     echo ""
     [[ $FAILURES -gt 0 ]] && exit 1
     exit 0
 fi
 
-if [[ ${#MISSING[@]} -gt 0 ]] && ! $DRY_RUN; then
+if [ -n "$MISSING" ] && ! $DRY_RUN; then
     echo ""
     read -rp "Prérequis manquants. Continuer quand même ? [y/N] " ans
     [[ "$ans" =~ ^[yY]$ ]] || exit 1
@@ -222,11 +232,11 @@ run mkdir -p "$(dirname "$NVIM_CONFIG_DIR")"
 
 ALREADY_DEPLOYED=false
 if [ -L "$NVIM_CONFIG_DIR" ]; then
-    if [ "$(readlink -f "$NVIM_CONFIG_DIR")" = "$(readlink -f "$REPO_DIR")" ]; then
+    if [ "$(abspath "$NVIM_CONFIG_DIR")" = "$(abspath "$REPO_DIR")" ]; then
         ALREADY_DEPLOYED=true
         ok "déjà déployé → $REPO_DIR"
     else
-        warn "symlink existant vers $(readlink -f "$NVIM_CONFIG_DIR") — remplacé"
+        warn "symlink existant vers $(abspath "$NVIM_CONFIG_DIR") — remplacé"
         run rm "$NVIM_CONFIG_DIR"
     fi
 elif [ -e "$NVIM_CONFIG_DIR" ]; then
@@ -244,10 +254,10 @@ fi
 step "[2/4] Serveurs LSP et formatters"
 # =============================================================================
 
-if [[ ${#ABSENT[@]} -eq 0 ]]; then
+if [ -z "$ABSENT" ]; then
     ok "tout est déjà installé"
 else
-    for cmd in "${ABSENT[@]}"; do
+    for cmd in $ABSENT; do   # non quoté : découpage voulu
         case "$cmd" in
             pyright|bash-language-server|prettier)
                 pkg_install "$cmd" && installed "$cmd" || warn "échec : $cmd" ;;
@@ -293,7 +303,9 @@ JDTLS_STAMP="$JDTLS_DIR/.installed-from"
 JAVA_MAJOR=0
 if has java; then
     # `openjdk version "25.0.2"` → 25 ; `"1.8.0_..."` → 1, donc rejeté plus bas.
-    JAVA_MAJOR=$(java -version 2>&1 | grep -oP '(?<=version ")\d+' | head -1)
+    JAVA_MAJOR=$(java -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/')
+    # Si le motif ne matche pas, sed renvoie la ligne entière : on neutralise.
+    case "$JAVA_MAJOR" in ''|*[!0-9]*) JAVA_MAJOR=0 ;; esac
 fi
 
 if ! has java; then
@@ -307,11 +319,11 @@ else
     if [ -z "$JDTLS_LATEST" ]; then
         warn "download.eclipse.org injoignable — jdtls laissé en l'état"
     elif [ -f "$JDTLS_STAMP" ] && [ "$(cat "$JDTLS_STAMP")" = "$JDTLS_LATEST" ]; then
-        ok "jdtls à jour ($(echo "$JDTLS_LATEST" | grep -oP '\d+\.\d+\.\d+'))"
+        ok "jdtls à jour ($(echo "$JDTLS_LATEST" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1))"
     elif $DRY_RUN; then
         info "[dry-run] installerait $JDTLS_LATEST (~49 Mo) → $JDTLS_DIR"
     else
-        info "téléchargement de jdtls $(echo "$JDTLS_LATEST" | grep -oP '\d+\.\d+\.\d+') (~49 Mo)..."
+        info "téléchargement de jdtls $(echo "$JDTLS_LATEST" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) (~49 Mo)..."
         # Staging à côté de la cible : même système de fichiers, donc la
         # permutation finale est un simple rename.
         STAGING="$JDTLS_DIR.staging-$$"
@@ -327,7 +339,7 @@ else
             mv "$STAGING" "$JDTLS_DIR"
             echo "$JDTLS_LATEST" > "$JDTLS_STAMP"
             rm -rf "$JDTLS_DIR.old"
-            ok "jdtls $(echo "$JDTLS_LATEST" | grep -oP '\d+\.\d+\.\d+') installé"
+            ok "jdtls $(echo "$JDTLS_LATEST" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) installé"
         else
             rm -rf "$STAGING"
             fail "téléchargement ou extraction de jdtls en échec — installation précédente intacte"
@@ -345,12 +357,12 @@ else
     info "installation aux versions de lazy-lock.json (1-2 min)..."
     # restore, pas sync : sync flotterait vers le dernier commit de chaque
     # plugin et réécrirait le lockfile.
-    LAZY_LOG=$(mktemp)
+    LAZY_LOG=$(tmpfile)
     if nvim --headless "+Lazy! restore" +qa >"$LAZY_LOG" 2>&1; then
         # Un échec partiel peut sortir en 0 : on ne se fie pas au code retour seul.
-        if grep -qiE '^\s*(error|failed)' "$LAZY_LOG"; then
+        if grep -qiE '^[[:space:]]*(error|failed)' "$LAZY_LOG"; then
             fail "Lazy restore a signalé des erreurs :"
-            grep -iE '^\s*(error|failed)' "$LAZY_LOG" | head -10 | sed 's/^/      /'
+            grep -iE '^[[:space:]]*(error|failed)' "$LAZY_LOG" | head -10 | sed 's/^/      /'
         else
             PLUGIN_COUNT=$(python3 -c "import json;print(len(json.load(open('$REPO_DIR/lazy-lock.json'))))" 2>/dev/null || echo "?")
             ok "$PLUGIN_COUNT plugins installés"
