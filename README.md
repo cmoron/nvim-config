@@ -112,7 +112,8 @@ fc-cache -fv
 | JS/TS | typescript-language-server | `npm install -g typescript-language-server typescript` |
 | Svelte | svelte-language-server | `npm install -g svelte-language-server` |
 | Rust | rust-analyzer | `rustup component add rust-analyzer` |
-| Java | jdtls | manuel dans `~/.local/share/jdtls/` (voir section Java dans init.lua) |
+| Go | gopls | `go install golang.org/x/tools/gopls@latest` |
+| Java | jdtls | manuel dans `~/.local/share/jdtls/` — le bundle offline l'embarque et l'installe pour vous |
 
 ### Vérification
 ```bash

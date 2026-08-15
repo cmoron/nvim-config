@@ -78,16 +78,15 @@ Le bloc Java quitte `init.lua` pour `ftplugin/java.lua` :
 - `ftplugin/java.lua` reçoit la détection de root, le calcul de workspace et
   l'appel à `jdtls.start_or_attach`
 
-Les deux scripts d'export offline copient `init.lua` **nommément**, pas le
-dépôt : `export-offline.sh:47` (`cp init.lua "$EXPORT_DIR/config/"`, puis
-`:140` côté installation) et `scripts/build-offline.sh:44`
-(`cp "$REPO_DIR/init.lua" "$DIST_DIR/init.lua"`). Le dossier `ftplugin/`
-serait donc silencieusement absent du bundle offline, et Java cesserait de
-fonctionner sur la machine cible sans aucun message.
+`export-offline.sh` copie `init.lua` **nommément**, pas le dépôt : `:47`
+(`cp init.lua "$EXPORT_DIR/config/"`) côté export, et la copie symétrique dans
+le `install.sh` qu'il génère. Le dossier `ftplugin/` serait donc silencieusement
+absent du bundle offline, et Java cesserait de fonctionner sur la machine cible
+sans aucun message.
 
-Les deux scripts doivent copier `ftplugin/` en plus de `init.lua`, et
-`install-offline.sh` doit le déposer dans `~/.config/nvim/ftplugin/`. C'est
-le critère d'acceptation 7.
+`export-offline.sh` doit copier `ftplugin/` en plus de `init.lua`, et le
+`install.sh` généré doit le déposer dans `~/.config/nvim/ftplugin/`. C'est le
+critère d'acceptation 7.
 
 ### 2. Détection du root
 
@@ -191,7 +190,8 @@ diagnostic. Il sort en erreur si l'une des trois échoue.
    `workspace_dir` que depuis sa racine
 5. Le script de validation passe en une commande
 6. `nvim --headless -c 'qa!'` démarre sans erreur
-7. Les scripts d'export offline embarquent `ftplugin/`
+7. `export-offline.sh` embarque `ftplugin/`, et le `install.sh` qu'il génère
+   le dépose dans `~/.config/nvim/ftplugin/`
 
 ## Hors périmètre
 
@@ -222,20 +222,20 @@ côté machine de travail.
 distribution Gradle et sait utiliser le wrapper, donc le cas devrait tenir,
 mais il ne sera pas couvert par les fixtures.
 
-## Défaut adjacent, hors périmètre
+## Export offline — traité avant ce sous-projet
 
-Découvert en vérifiant le point sur l'export offline. **La chaîne offline est
-déjà cassée par la refonte v2, indépendamment de ce sous-projet :**
+Une première rédaction de cette spec affirmait que « la chaîne offline est
+cassée par la refonte v2 ». C'était trop large. Vérification faite :
 
-- `scripts/build-offline.sh:47` et `:52` appliquent des `sed` sur
-  `auto_install = true` et `ensure_installed = {...}`. Ces deux motifs ont
-  disparu d'`init.lua` avec le passage à la branche `main` de treesitter
-  (`grep -c` renvoie 0 pour les deux). Les `sed` ne matchent rien et
-  réussissent silencieusement — le bundle produit garde donc une config qui
-  tente de télécharger les parsers au démarrage, ce qui est précisément ce que
-  le mode offline doit empêcher.
-- `scripts/offline-tsconfig.lua:43` fait `require("nvim-treesitter.configs")`,
-  module qui n'existe pas sur la branche `main`. Le script sort en erreur.
+- `export-offline.sh` (le chemin vivant, documenté dans le README) **n'était
+  pas cassé**. Il ne patche pas `init.lua` : sur la branche `main`, `install()`
+  est incrémental, donc des parsers déjà présents ne déclenchent aucun
+  téléchargement. Vérifié par une installation dans un `HOME` vierge suivie
+  d'un démarrage sous `unshare -rn`, réseau coupé : aucune erreur.
+- La chaîne cassée était `scripts/build-offline.sh` et ses satellites, ancêtres
+  supplantés par `da466f8` et jamais supprimés. Ils ont été retirés du dépôt.
 
-À traiter séparément : ça ne touche ni jdtls ni le classpath, et le mélanger
-au socle Java brouillerait les deux sujets.
+Le bundling de jdtls, seule capacité que l'ancienne chaîne avait et que la
+nouvelle n'avait pas, a été porté dans `export-offline.sh` — ce qui compte pour
+ce sous-projet : la machine offline reçoit désormais le serveur Java avec le
+bundle, sans quoi rien de ce qui suit n'aurait pu y tourner.

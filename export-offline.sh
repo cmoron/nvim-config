@@ -37,20 +37,20 @@ if [ ! -d "$LAZY_DIR" ]; then
 fi
 
 # Créer le dossier d'export
-echo -e "${GREEN}[1/4]${NC} Création de la structure d'export..."
+echo -e "${GREEN}[1/5]${NC} Création de la structure d'export..."
 rm -rf "$EXPORT_DIR"
 mkdir -p "$PLUGINS_DIR"
 mkdir -p "$EXPORT_DIR/config"
 
 # Copier les fichiers de configuration
-echo -e "${GREEN}[2/4]${NC} Copie des fichiers de configuration..."
+echo -e "${GREEN}[2/5]${NC} Copie des fichiers de configuration..."
 cp init.lua "$EXPORT_DIR/config/"
 if [ -f "lazy-lock.json" ]; then
     cp lazy-lock.json "$EXPORT_DIR/config/"
 fi
 
 # Copier les plugins tels qu'installés (inclut le binaire précompilé de blink.cmp)
-echo -e "\n${GREEN}[3/4]${NC} Copie des plugins installés..."
+echo -e "\n${GREEN}[3/5]${NC} Copie des plugins installés..."
 cp -R "$LAZY_DIR/." "$PLUGINS_DIR/"
 PLUGIN_COUNT=$(ls -1 "$PLUGINS_DIR" | wc -l | tr -d ' ')
 echo -e "${GREEN}✓${NC} $PLUGIN_COUNT plugins copiés"
@@ -58,8 +58,12 @@ echo -e "${GREEN}✓${NC} $PLUGIN_COUNT plugins copiés"
 # Nettoyer les dossiers .git pour économiser de l'espace
 find "$PLUGINS_DIR" -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
 
+# Élaguer les parsers hérités de la branche master : treesitter main lit
+# site/parser (exporté à l'étape suivante), jamais ce dossier.
+rm -rf "$PLUGINS_DIR/nvim-treesitter/parser"
+
 # Copier les parsers Treesitter pré-compilés (branche main : site/parser)
-echo -e "\n${GREEN}[4/4]${NC} Copie des parsers Treesitter..."
+echo -e "\n${GREEN}[4/5]${NC} Copie des parsers Treesitter..."
 TREESITTER_PARSER_DEST="$EXPORT_DIR/treesitter-parsers"
 if [ -d "$PARSER_DIR" ]; then
     mkdir -p "$TREESITTER_PARSER_DEST"
@@ -69,6 +73,16 @@ if [ -d "$PARSER_DIR" ]; then
 else
     echo -e "${YELLOW}⚠${NC} Parsers Treesitter non trouvés dans $PARSER_DIR."
     echo -e "  Lancez Neovim une fois pour les compiler."
+fi
+
+# Copier le serveur jdtls : impossible à récupérer sur une machine sans réseau
+echo -e "\n${GREEN}[5/5]${NC} Copie du serveur jdtls (Java)..."
+JDTLS_DIR="$HOME/.local/share/jdtls"
+if [ -d "$JDTLS_DIR" ]; then
+    cp -R "$JDTLS_DIR" "$EXPORT_DIR/jdtls"
+    echo -e "${GREEN}✓${NC} jdtls copié ($(du -sh "$EXPORT_DIR/jdtls" | cut -f1))"
+else
+    echo -e "${YELLOW}⚠${NC} jdtls absent de $JDTLS_DIR — le support Java ne sera pas embarqué."
 fi
 
 # Créer le script d'installation
@@ -135,7 +149,7 @@ if [ -d "$NVIM_CONFIG_DIR" ] || [ -d "$LAZY_DIR" ]; then
 fi
 
 # Installation
-echo -e "\n${GREEN}[1/4]${NC} Installation de la configuration..."
+echo -e "\n${GREEN}[1/5]${NC} Installation de la configuration..."
 mkdir -p "$NVIM_CONFIG_DIR"
 cp config/init.lua "$NVIM_CONFIG_DIR/"
 if [ -f "config/lazy-lock.json" ]; then
@@ -143,7 +157,7 @@ if [ -f "config/lazy-lock.json" ]; then
 fi
 echo -e "${GREEN}✓${NC} Configuration copiée"
 
-echo -e "\n${GREEN}[2/4]${NC} Installation des plugins (dont lazy.nvim)..."
+echo -e "\n${GREEN}[2/5]${NC} Installation des plugins (dont lazy.nvim)..."
 mkdir -p "$LAZY_DIR"
 for plugin_dir in plugins/*; do
     if [ -d "$plugin_dir" ]; then
@@ -153,7 +167,7 @@ for plugin_dir in plugins/*; do
 done
 echo -e "${GREEN}✓${NC} Plugins installés"
 
-echo -e "\n${GREEN}[3/4]${NC} Installation des parsers Treesitter (branche main)..."
+echo -e "\n${GREEN}[3/5]${NC} Installation des parsers Treesitter (branche main)..."
 if [ -d "treesitter-parsers" ]; then
     SITE_PARSER_DIR="$NVIM_DATA_DIR/site/parser"
     mkdir -p "$SITE_PARSER_DIR"
@@ -165,7 +179,17 @@ else
     echo -e "  (nécessite le CLI tree-sitter et un compilateur C)."
 fi
 
-echo -e "\n${GREEN}[4/4]${NC} Vérification du binaire blink.cmp..."
+echo -e "\n${GREEN}[4/5]${NC} Installation du serveur jdtls (Java)..."
+if [ -d "jdtls" ]; then
+    # cp -R src dest copierait dans dest s'il existe déjà : on vise le contenu
+    mkdir -p "$HOME/.local/share/jdtls"
+    cp -R jdtls/. "$HOME/.local/share/jdtls/"
+    echo -e "${GREEN}✓${NC} jdtls installé dans $HOME/.local/share/jdtls"
+else
+    echo -e "${YELLOW}⚠${NC} jdtls non inclus dans ce bundle — support Java indisponible."
+fi
+
+echo -e "\n${GREEN}[5/5]${NC} Vérification du binaire blink.cmp..."
 if ls "$LAZY_DIR"/blink.cmp/target/release/libblink_cmp_fuzzy.* &> /dev/null; then
     echo -e "${GREEN}✓${NC} Binaire fuzzy blink.cmp présent"
 else
@@ -331,6 +355,7 @@ nécessaires pour une installation offline.
 - `config/` - Fichiers de configuration (init.lua, lazy-lock.json)
 - `plugins/` - Tous les plugins tels qu'installés (binaire blink.cmp inclus)
 - `treesitter-parsers/` - Parsers Treesitter pré-compilés (branche main)
+- `jdtls/` - Serveur LSP Java (absent si la machine d'export n'en avait pas)
 - `install.sh` - Script d'installation automatique
 - `DEPENDENCIES.md` - Liste complète des dépendances système
 
@@ -367,6 +392,8 @@ nécessaires pour une installation offline.
   │   ├── blink.cmp/         # Complétion (binaire fuzzy inclus)
   │   └── ...                # Autres plugins
   └── site/parser/           # Parsers Treesitter pré-compilés
+
+~/.local/share/jdtls/        # Serveur LSP Java
 ```
 
 ## Fonctionnalités
@@ -454,6 +481,9 @@ echo -e "  • $PLUGIN_COUNT plugins (dont binaire blink.cmp précompilé)"
 if [ -d "$TREESITTER_PARSER_DEST" ]; then
     PARSER_COUNT=$(ls -1 "$TREESITTER_PARSER_DEST"/*.so 2>/dev/null | wc -l | tr -d ' ')
     echo -e "  • ${GREEN}$PARSER_COUNT parsers Treesitter pré-compilés${NC}"
+fi
+if [ -d "$EXPORT_DIR/jdtls" ]; then
+    echo -e "  • ${GREEN}Serveur LSP Java (jdtls)${NC}"
 fi
 echo -e "  • Script d'installation (install.sh)"
 echo -e "  • Documentation des dépendances (DEPENDENCIES.md)"
