@@ -652,6 +652,45 @@
   </section>
 
   <section>
+    <h2>
+      Tester
+      <span class="tally">jdtls découvre les classes et méthodes de test</span>
+    </h2>
+    <div class="rows">
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>t</kbd><kbd>m</kbd></span>
+        <span class="what">Lancer la méthode de test sous le curseur</span>
+        <span class="idea">Ctrl+⇧+F10</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>Espace</kbd><kbd>t</kbd><kbd>c</kbd></span>
+        <span class="what">Lancer toute la classe de test</span>
+        <span class="idea">Ctrl+⇧+F10</span>
+      </div>
+      <div class="row">
+        <span class="keys"
+          ><kbd>Espace</kbd><kbd>d</kbd><kbd>b</kbd><span class="sep">puis</span
+          ><kbd>Espace</kbd><kbd>t</kbd><kbd>m</kbd></span
+        >
+        <span class="what"
+          >Débugger un test — les deux passent par dap, le breakpoint est
+          honoré</span
+        >
+        <span class="idea">Ctrl+⇧+F9</span>
+      </div>
+      <div class="row">
+        <span class="keys"><kbd>:</kbd><code>!mvn -q test</code></span>
+        <span class="what">Toute la suite, hors éditeur</span>
+        <span class="idea">—</span>
+      </div>
+    </div>
+    <p class="standfirst">
+      Les raccourcis de test sont attachés aux buffers Java, contrairement à
+      ceux du debug : ils n'ont de sens que dans un <code>.java</code>.
+    </p>
+  </section>
+
+  <section>
     <h2>Ce qui mord</h2>
     <div class="flag">
       <h3>Trois pièges</h3>
@@ -678,10 +717,10 @@
       <h3>Le manque restant face à IntelliJ</h3>
       <ul>
         <li>
-          <strong>Lanceur de tests</strong> — pas de
-          <code>vscode-java-test</code>, donc pas de « run test at cursor ».
-          Laissé de côté sciemment : <code>tsp-solver</code> n'a aucun test,
-          l'ajouter maintenant serait invérifiable.
+          <strong>Couverture de code</strong> — <code>jacocoagent.jar</code> est
+          écarté volontairement des bundles, jdtls le refusant comme bundle
+          OSGi. En attendant, <code>mvn jacoco:report</code> fait le travail
+          hors éditeur.
         </li>
       </ul>
     </div>

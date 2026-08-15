@@ -679,10 +679,19 @@ vim.api.nvim_create_autocmd("FileType", {
         -- Capabilities depuis blink.cmp
         local capabilities = require("blink.cmp").get_lsp_capabilities()
 
-        -- Adaptateur de debug, posé par scripts/install.sh. Absent = LSP seul,
-        -- sans breakpoints : on ne casse pas l'édition pour autant.
+        -- Adaptateur de debug et lanceur de tests, posés par scripts/install.sh.
+        -- Absents = LSP seul, sans breakpoints ni tests : on ne casse pas
+        -- l'édition pour autant.
         local debug_bundles =
-            vim.fn.glob(vim.fn.expand("~/.local/share/java-debug") .. "/com.microsoft.java.debug.plugin-*.jar", true, true)
+            vim.fn.glob(vim.fn.expand("~/.local/share/java-debug") .. "/*.jar", true, true)
+
+        -- Le lanceur embarque deux jars qui ne sont pas des bundles OSGi ;
+        -- jdtls les rejette au démarrage si on les lui passe.
+        local test_bundles = vim.tbl_filter(function(jar)
+            return not jar:match("test%.runner%-jar%-with%-dependencies%.jar$") and not jar:match("jacocoagent%.jar$")
+        end, vim.fn.glob(vim.fn.expand("~/.local/share/java-test") .. "/*.jar", true, true))
+
+        local bundles = vim.list_extend(vim.list_slice(debug_bundles), test_bundles)
 
         jdtls.start_or_attach({
             cmd = {
@@ -701,9 +710,9 @@ vim.api.nvim_create_autocmd("FileType", {
             },
             root_dir = jdtls.setup.find_root({ ".git", "mvnw", "gradlew", "pom.xml", "build.gradle" }),
             capabilities = capabilities,
-            -- Le jar java-debug s'enfiche dans jdtls : c'est le serveur lui-même
-            -- qui expose ensuite l'adaptateur, pas un exécutable séparé.
-            init_options = { bundles = debug_bundles },
+            -- Les jars s'enfichent dans jdtls : c'est le serveur lui-même qui
+            -- expose ensuite l'adaptateur et le lanceur, pas un exécutable séparé.
+            init_options = { bundles = bundles },
             on_attach = function()
                 if #debug_bundles == 0 then
                     return
@@ -722,5 +731,18 @@ vim.api.nvim_create_autocmd("FileType", {
                 },
             },
         })
+
+        -- Lancer les tests. Buffer-local, contrairement aux touches de debug :
+        -- ces gestes n'ont de sens que dans un .java. Les deux passent par dap,
+        -- donc un breakpoint posé dans le test est honoré.
+        if #test_bundles > 0 then
+            vim.keymap.set("n", "<leader>tc", jdtls.test_class, { buffer = 0, silent = true, desc = "Test: la classe" })
+            vim.keymap.set(
+                "n",
+                "<leader>tm",
+                jdtls.test_nearest_method,
+                { buffer = 0, silent = true, desc = "Test: la méthode sous le curseur" }
+            )
+        end
     end,
 })

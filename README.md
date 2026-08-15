@@ -124,6 +124,7 @@ fc-cache -fv
 | Go                   | gopls                      | `go install golang.org/x/tools/gopls@latest`                                       |
 | Java                 | jdtls                      | `scripts/install.sh` (si JDK 21+ présent) ; le bundle offline l'embarque aussi     |
 | Java (debug)         | java-debug-adapter         | `scripts/install.sh`, extrait de l'extension VS Code → `~/.local/share/java-debug` |
+| Java (tests)         | vscode-java-test           | `scripts/install.sh`, extrait de l'extension VS Code → `~/.local/share/java-test`  |
 
 ### Vérification
 
