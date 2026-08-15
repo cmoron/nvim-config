@@ -643,12 +643,30 @@
         <span class="idea">Ctrl+F2</span>
       </div>
     </div>
-    <div class="menu">
-      <h3>Ce que F5 propose sur tsp-solver</h3>
-      <ul>
-        <li>Launch tsp-solver: com.tsp.Main</li>
-      </ul>
+    <div class="pair">
+      <div class="menu">
+        <h3>Dans la gouttière</h3>
+        <ul>
+          <li>● rouge — breakpoint</li>
+          <li>◆ jaune — conditionnel</li>
+          <li>▶ vert — ligne d'arrêt</li>
+          <li>○ — refusé par la JVM</li>
+        </ul>
+      </div>
+      <div class="menu">
+        <h3>Le chemin le plus court</h3>
+        <ul>
+          <li>breakpoint dans un test</li>
+          <li>puis Espace t m</li>
+        </ul>
+      </div>
     </div>
+    <p class="standfirst">
+      Débugger l'application Swing par <kbd>F5</kbd> marche aussi, mais il faut
+      ensuite déclencher le calcul dans la fenêtre pour atteindre le breakpoint
+      : rien ne s'arrête tant que le code n'est pas parcouru. Passer par un test
+      est déterministe, et c'est le seul chemin vérifié de bout en bout ici.
+    </p>
   </section>
 
   <section>

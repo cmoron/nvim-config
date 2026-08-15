@@ -558,6 +558,14 @@ require("lazy").setup({
             local dap, dapui = require("dap"), require("dapui")
             dapui.setup()
 
+            -- Signes par défaut : un « B » en highlight SignColumn, donc gris sur
+            -- gris, illisible à côté des ● colorés des diagnostics. La ligne
+            -- d'arrêt est surlignée entièrement, comme dans un IDE.
+            vim.fn.sign_define("DapBreakpoint", { text = "●", texthl = "DiagnosticError" })
+            vim.fn.sign_define("DapBreakpointCondition", { text = "◆", texthl = "DiagnosticWarn" })
+            vim.fn.sign_define("DapBreakpointRejected", { text = "○", texthl = "DiagnosticHint" })
+            vim.fn.sign_define("DapStopped", { text = "▶", texthl = "DiagnosticOk", linehl = "Visual" })
+
             local function snacks_box()
                 for _, w in ipairs(vim.api.nvim_list_wins()) do
                     if vim.bo[vim.api.nvim_win_get_buf(w)].filetype == "snacks_layout_box" then
