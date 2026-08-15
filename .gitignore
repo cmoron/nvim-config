@@ -1,3 +1,7 @@
 # Artefacts générés par export-offline.sh
 nvim-config-offline/
 nvim-config-offline.tar.gz
+
+# Droppings d'outils : ~/.config/nvim est un symlink vers ce dépôt
+logs/
+.claude/
