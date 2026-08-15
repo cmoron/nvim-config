@@ -38,7 +38,8 @@ Déploie la configuration Neovim de ce dépôt et installe ses dépendances
 (serveurs LSP, formatters, plugins aux versions de lazy-lock.json).
 
 Le serveur Java jdtls est installé depuis download.eclipse.org, à sa dernière
-version publiée, uniquement si un JDK 21+ est présent.
+version publiée, uniquement si un JDK 21+ est présent. L'adaptateur de debug
+Java suit, extrait de l'extension VS Code (seul canal de distribution).
 
 ${BOLD}Options:${NC}
   -c, --check      Vérifie prérequis et outils, n'installe et ne modifie rien
@@ -290,7 +291,7 @@ else
 fi
 
 # =============================================================================
-step "[3/4] Serveur Java (jdtls)"
+step "[3/4] Serveur Java (jdtls + adaptateur de debug)"
 # =============================================================================
 
 # jdtls n'est pas distribué par un gestionnaire de paquets : on le tire du
@@ -299,6 +300,12 @@ step "[3/4] Serveur Java (jdtls)"
 JDTLS_DIR="$HOME/.local/share/jdtls"
 JDTLS_BASE="https://download.eclipse.org/jdtls/snapshots"
 JDTLS_STAMP="$JDTLS_DIR/.installed-from"
+
+# L'adaptateur de debug n'est publié que dans l'extension VS Code : son dépôt
+# ne joint aucun jar à ses releases. `latest` dispense de découvrir la version,
+# donc pas de jq à exiger ici.
+JDEBUG_DIR="$HOME/.local/share/java-debug"
+JDEBUG_URL="https://marketplace.visualstudio.com/_apis/public/gallery/publishers/vscjava/vsextensions/vscode-java-debug/latest/vspackage"
 
 # macOS fournit un stub /usr/bin/java qui échoue faute de JDK : la présence de
 # la commande ne prouve rien, seule sa sortie compte. Le `|| true` est vital,
@@ -344,6 +351,33 @@ else
             rm -rf "$STAGING"
             fail "téléchargement ou extraction de jdtls en échec — installation précédente intacte"
         fi
+    fi
+
+    # Adaptateur de debug (breakpoints, pas-à-pas). Pas de rafraîchissement
+    # automatique : supprimer $JDEBUG_DIR pour retélécharger.
+    if ! has unzip; then
+        warn "unzip absent — adaptateur de debug Java non installé"
+    elif compgen -G "$JDEBUG_DIR/com.microsoft.java.debug.plugin-*.jar" >/dev/null; then
+        ok "adaptateur de debug Java déjà présent"
+    elif $DRY_RUN; then
+        info "[dry-run] installerait l'adaptateur de debug Java (~3 Mo) → $JDEBUG_DIR"
+    else
+        info "téléchargement de l'adaptateur de debug Java (~3 Mo)..."
+        VSIX=$(tmpfile)
+        JDEBUG_STAGING="$JDEBUG_DIR.staging-$$"
+        if curl -fsSL --compressed -o "$VSIX" "$JDEBUG_URL" \
+           && unzip -qo "$VSIX" 'extension/server/*.jar' -d "$JDEBUG_STAGING" 2>/dev/null \
+           && compgen -G "$JDEBUG_STAGING/extension/server/com.microsoft.java.debug.plugin-*.jar" >/dev/null; then
+            rm -rf "$JDEBUG_DIR"
+            mkdir -p "$JDEBUG_DIR"
+            mv "$JDEBUG_STAGING"/extension/server/*.jar "$JDEBUG_DIR/"
+            rm -rf "$JDEBUG_STAGING"
+            ok "adaptateur de debug Java installé"
+        else
+            rm -rf "$JDEBUG_STAGING"
+            fail "adaptateur de debug Java : téléchargement ou extraction en échec"
+        fi
+        rm -f "$VSIX"
     fi
 fi
 

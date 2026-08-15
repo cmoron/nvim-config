@@ -528,6 +528,40 @@ require("lazy").setup({
     {
         "mfussenegger/nvim-jdtls",
         ft = "java", -- Chargement paresseux : uniquement sur les fichiers Java
+        dependencies = { "mfussenegger/nvim-dap" },
+    },
+
+    -- Debug. Les raccourcis sont globaux et non attachés au filetype : pendant
+    -- une session, le curseur vit dans les panneaux dap-ui, pas dans le .java.
+    {
+        "mfussenegger/nvim-dap",
+        dependencies = {
+            { "rcarriga/nvim-dap-ui", dependencies = { "nvim-neotest/nvim-nio" } },
+        },
+        keys = {
+            { "<leader>db", function() require("dap").toggle_breakpoint() end, desc = "Debug: breakpoint" },
+            {
+                "<leader>dB",
+                function()
+                    require("dap").set_breakpoint(vim.fn.input("Condition du breakpoint : "))
+                end,
+                desc = "Debug: breakpoint conditionnel",
+            },
+            { "<F5>", function() require("dap").continue() end, desc = "Debug: lancer / continuer" },
+            { "<F10>", function() require("dap").step_over() end, desc = "Debug: pas au-dessus" },
+            { "<F11>", function() require("dap").step_into() end, desc = "Debug: pas dedans" },
+            { "<leader>do", function() require("dap").step_out() end, desc = "Debug: sortir" },
+            { "<leader>dt", function() require("dap").terminate() end, desc = "Debug: arrêter" },
+            { "<leader>du", function() require("dapui").toggle() end, desc = "Debug: panneaux" },
+        },
+        config = function()
+            local dap, dapui = require("dap"), require("dapui")
+            dapui.setup()
+            -- Les panneaux suivent la session : rien à ouvrir ni fermer à la main.
+            dap.listeners.after.event_initialized["dapui"] = function() dapui.open() end
+            dap.listeners.before.event_terminated["dapui"] = function() dapui.close() end
+            dap.listeners.before.event_exited["dapui"] = function() dapui.close() end
+        end,
     },
 
     {
@@ -645,6 +679,11 @@ vim.api.nvim_create_autocmd("FileType", {
         -- Capabilities depuis blink.cmp
         local capabilities = require("blink.cmp").get_lsp_capabilities()
 
+        -- Adaptateur de debug, posé par scripts/install.sh. Absent = LSP seul,
+        -- sans breakpoints : on ne casse pas l'édition pour autant.
+        local debug_bundles =
+            vim.fn.glob(vim.fn.expand("~/.local/share/java-debug") .. "/com.microsoft.java.debug.plugin-*.jar", true, true)
+
         jdtls.start_or_attach({
             cmd = {
                 "java",
@@ -662,6 +701,18 @@ vim.api.nvim_create_autocmd("FileType", {
             },
             root_dir = jdtls.setup.find_root({ ".git", "mvnw", "gradlew", "pom.xml", "build.gradle" }),
             capabilities = capabilities,
+            -- Le jar java-debug s'enfiche dans jdtls : c'est le serveur lui-même
+            -- qui expose ensuite l'adaptateur, pas un exécutable séparé.
+            init_options = { bundles = debug_bundles },
+            on_attach = function()
+                if #debug_bundles == 0 then
+                    return
+                end
+                jdtls.setup_dap({ hotcodereplace = "auto" })
+                -- Demande au serveur les classes à `main` du projet et en fait
+                -- des configurations dap prêtes à lancer.
+                require("jdtls.dap").setup_dap_main_class_configs()
+            end,
             settings = {
                 java = {
                     format = { enabled = true },

@@ -112,17 +112,18 @@ fc-cache -fv
 
 ## Serveurs LSP
 
-| Langage              | Serveur LSP                | Installé via                                                                   |
-| -------------------- | -------------------------- | ------------------------------------------------------------------------------ |
-| Lua                  | lua-language-server        | `brew install lua-language-server`                                             |
-| Python               | Pyright                    | `npm install -g pyright`                                                       |
-| Python (lint/format) | Ruff                       | `uv tool install ruff`                                                         |
-| Bash                 | bash-language-server       | `npm install -g bash-language-server`                                          |
-| JS/TS                | typescript-language-server | `npm install -g typescript-language-server typescript`                         |
-| Svelte               | svelte-language-server     | `npm install -g svelte-language-server`                                        |
-| Rust                 | rust-analyzer              | `rustup component add rust-analyzer`                                           |
-| Go                   | gopls                      | `go install golang.org/x/tools/gopls@latest`                                   |
-| Java                 | jdtls                      | `scripts/install.sh` (si JDK 21+ présent) ; le bundle offline l'embarque aussi |
+| Langage              | Serveur LSP                | Installé via                                                                       |
+| -------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| Lua                  | lua-language-server        | `brew install lua-language-server`                                                 |
+| Python               | Pyright                    | `npm install -g pyright`                                                           |
+| Python (lint/format) | Ruff                       | `uv tool install ruff`                                                             |
+| Bash                 | bash-language-server       | `npm install -g bash-language-server`                                              |
+| JS/TS                | typescript-language-server | `npm install -g typescript-language-server typescript`                             |
+| Svelte               | svelte-language-server     | `npm install -g svelte-language-server`                                            |
+| Rust                 | rust-analyzer              | `rustup component add rust-analyzer`                                               |
+| Go                   | gopls                      | `go install golang.org/x/tools/gopls@latest`                                       |
+| Java                 | jdtls                      | `scripts/install.sh` (si JDK 21+ présent) ; le bundle offline l'embarque aussi     |
+| Java (debug)         | java-debug-adapter         | `scripts/install.sh`, extrait de l'extension VS Code → `~/.local/share/java-debug` |
 
 ### Vérification
 
