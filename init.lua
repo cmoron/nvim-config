@@ -115,6 +115,16 @@ end
 -- 2 espaces pour HTML, JS, Vue, Svelte
 set_indent({ "html", "javascript", "vue", "svelte" }, 2, 2)
 
+-- Go : tabs (convention gofmt)
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "go",
+    callback = function()
+        vim.opt_local.expandtab = false
+        vim.opt_local.tabstop = 4
+        vim.opt_local.shiftwidth = 4
+    end,
+})
+
 -- Auto-reload fichiers modifiés (check au focus/buffer change)
 vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHoldI" }, {
     pattern = "*",
@@ -392,6 +402,8 @@ require("lazy").setup({
                 markdown = { "prettier" },
                 -- xmllint (paquet : libxml2-utils / libxml2)
                 xml = { "xmllint" },
+                -- Go : goimports gère l'import auto + format ; gofmt en fallback
+                go = { "goimports", "gofmt" },
             },
             -- Fallback sur LSP si pas de formatter configuré
             format_on_save = false, -- Pas de format automatique
@@ -443,6 +455,9 @@ require("lazy").setup({
                 "css",
                 "python",
                 "java",
+                "go",
+                "gomod",
+                "gosum",
                 "bash",
                 "json",
                 "yaml",
@@ -529,7 +544,7 @@ require("lazy").setup({
             })
 
             -- Activer tous les serveurs LSP
-            vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff", "lua_ls" })
+            vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff", "lua_ls", "gopls" })
         end,
     },
 })

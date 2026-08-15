@@ -30,6 +30,7 @@ OFFLINE_PARSERS=(
     python bash
     rust svelte
     java
+    go gomod gosum
     json yaml toml
     markdown
 )
