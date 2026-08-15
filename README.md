@@ -132,14 +132,24 @@ which lua-language-server pyright bash-language-server typescript-language-serve
 
 ## Installation
 
-1. Cloner cette configuration dans `~/.config/nvim/` :
-   ```bash
-   git clone <repo-url> ~/.config/nvim
-   ```
-2. Installer les dépendances listées ci-dessus
-3. Lancer Neovim : `nvim` — les plugins s'installent automatiquement (lazy.nvim)
-   et les parsers Treesitter se compilent (nécessite tree-sitter-cli + compilateur C)
-4. **Redémarrer Neovim** après l'installation
+Cloner le dépôt où l'on veut, puis lancer le script :
+
+```bash
+gh repo clone cmoron/nvim-config   # ou git clone git@github.com:cmoron/nvim-config.git
+cd nvim-config
+./scripts/install.sh
+```
+
+`install.sh` crée le symlink `~/.config/nvim` → dépôt, installe les serveurs LSP
+et formatters manquants, puis les plugins aux versions de `lazy-lock.json`. Le
+dépôt reste à l'endroit choisi : toute modification y est active immédiatement.
+
+Une config existante est sauvegardée en `~/.config/nvim.bak-<horodatage>`.
+
+| Option            | Effet                                        |
+| ----------------- | -------------------------------------------- |
+| `-c`, `--check`   | Vérifie prérequis et outils, n'installe rien |
+| `-n`, `--dry-run` | Affiche les actions sans les exécuter        |
 
 ### Installation offline
 
