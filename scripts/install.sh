@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# install.sh
-# Installation classique de la config Neovim (système avec accès internet).
+# install.sh — déploiement de la configuration Neovim (machine avec réseau)
 #
-# Installe :
-#   - La config init.lua dans ~/.config/nvim/
-#   - Les serveurs LSP, formatters et outils CLI nécessaires
-#   - Les plugins (lazy.nvim se bootstrap tout seul au premier lancement)
-#   - Les parsers Treesitter (auto-installés au premier lancement)
-#
-# Usage :
-#   bash scripts/install.sh           # installation complète
-#   bash scripts/install.sh --check   # vérifie les dépendances sans installer
+# Pour une machine sans réseau, voir export-offline.sh à la racine du dépôt.
 # =============================================================================
 
 set -euo pipefail
@@ -20,245 +11,319 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 NVIM_CONFIG_DIR="$HOME/.config/nvim"
 
-CHECK_ONLY=false
-if [[ "${1:-}" == "--check" ]]; then
-    CHECK_ONLY=true
+# --- Couleurs (désactivées si la sortie n'est pas un terminal) ---
+if [ -t 1 ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'; DIM='\033[2m'; BOLD='\033[1m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; BLUE=''; DIM=''; BOLD=''; NC=''
 fi
 
-# --- Couleurs ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+FAILURES=0
+WARNINGS=0
 
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
-warn() { echo -e "  ${YELLOW}!${NC} $1"; }
-fail() { echo -e "  ${RED}✗${NC} $1"; }
+warn() { echo -e "  ${YELLOW}!${NC} $1"; WARNINGS=$((WARNINGS + 1)); }
+fail() { echo -e "  ${RED}✗${NC} $1"; FAILURES=$((FAILURES + 1)); }
+info() { echo -e "  ${DIM}$1${NC}"; }
+step() { echo -e "\n${BOLD}${BLUE}$1${NC}"; }
 
-# --- Détection du package manager ---
-detect_pm() {
-    if command -v apt-get &>/dev/null; then
-        echo "apt"
-    elif command -v dnf &>/dev/null; then
-        echo "dnf"
-    elif command -v pacman &>/dev/null; then
-        echo "pacman"
-    elif command -v brew &>/dev/null; then
-        echo "brew"
-    else
-        echo "unknown"
-    fi
+usage() {
+    cat <<EOF
+${BOLD}Usage:${NC} install.sh [OPTIONS]
+
+Déploie la configuration Neovim de ce dépôt et installe ses dépendances
+(serveurs LSP, formatters, plugins aux versions de lazy-lock.json).
+
+${BOLD}Options:${NC}
+  -c, --check      Vérifie prérequis et outils, n'installe et ne modifie rien
+  -n, --dry-run    Affiche les actions sans les exécuter
+  -h, --help       Affiche cette aide
+
+${BOLD}Détails:${NC}
+  La config est déployée par symlink de ${DIM}$NVIM_CONFIG_DIR${NC} vers le dépôt :
+  toute modification du dépôt est active immédiatement, et les fichiers
+  ajoutés (ftplugin/, lua/...) sont pris en compte sans retoucher ce script.
+
+  Une config existante est déplacée vers ${DIM}<chemin>.bak-<horodatage>${NC}.
+
+${BOLD}Codes de sortie:${NC}
+  0  succès (des avertissements restent possibles)
+  1  au moins un échec
+  2  erreur d'utilisation
+EOF
 }
 
-PM=$(detect_pm)
+# --- Parsing des arguments ---
+CHECK_ONLY=false
+DRY_RUN=false
 
-# --- Helpers ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -c|--check)   CHECK_ONLY=true; shift ;;
+        -n|--dry-run) DRY_RUN=true; shift ;;
+        -h|--help)    usage; exit 0 ;;
+        *)
+            echo -e "${RED}Erreur:${NC} option inconnue : $1" >&2
+            echo "Essayez : install.sh --help" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# Exécute une commande sans polluer stdout. Sa sortie n'est montrée qu'en cas
+# d'échec — un installeur bavard cache ce qui a vraiment raté.
+# En dry-run, affiche l'action sans l'exécuter.
+run() {
+    if $DRY_RUN; then
+        info "[dry-run] $*"
+        return 0
+    fi
+    local log rc=0
+    log=$(mktemp)
+    "$@" >"$log" 2>&1 || rc=$?
+    [[ $rc -ne 0 ]] && tail -8 "$log" | sed 's/^/      /'
+    rm -f "$log"
+    return $rc
+}
+
 has() { command -v "$1" &>/dev/null; }
 
-npm_install() {
-    if has bun; then
-        bun install -g "$@"
-    elif has npm; then
-        npm install -g "$@"
-    else
-        fail "Ni bun ni npm trouvé — impossible d'installer $*"
-        return 1
-    fi
+# Succès d'une installation : muet en dry-run, où rien n'a été installé.
+installed() { $DRY_RUN || ok "$1"; }
+
+detect_pm() {
+    if has apt-get; then echo "apt"
+    elif has dnf;   then echo "dnf"
+    elif has pacman; then echo "pacman"
+    elif has brew;  then echo "brew"
+    else echo "unknown"; fi
+}
+PM=$(detect_pm)
+
+pkg_install() {
+    if has bun; then run bun install -g "$@"
+    elif has npm; then run npm install -g "$@"
+    else fail "Ni bun ni npm — impossible d'installer $*"; return 1; fi
 }
 
+echo -e "${BOLD}Configuration Neovim${NC} ${DIM}— $REPO_DIR${NC}"
+$DRY_RUN && info "mode dry-run : aucune modification ne sera écrite"
+
 # =============================================================================
-echo "=== Vérification des prérequis ==="
+step "Prérequis"
 # =============================================================================
 
 MISSING=()
 
-# Neovim >= 0.11
 if has nvim; then
     NVIM_VER=$(nvim --version | head -1 | grep -oP '\d+\.\d+')
-    NVIM_MAJOR=$(echo "$NVIM_VER" | cut -d. -f1)
-    NVIM_MINOR=$(echo "$NVIM_VER" | cut -d. -f2)
-    if (( NVIM_MAJOR == 0 && NVIM_MINOR < 11 )); then
-        fail "Neovim $NVIM_VER détecté — version 0.11+ requise"
+    if (( $(echo "$NVIM_VER" | cut -d. -f1) == 0 && $(echo "$NVIM_VER" | cut -d. -f2) < 11 )); then
+        fail "Neovim $NVIM_VER — version 0.11+ requise"
         MISSING+=("neovim>=0.11")
     else
         ok "Neovim $NVIM_VER"
     fi
 else
-    fail "Neovim non installé"
-    MISSING+=("neovim")
+    fail "Neovim non installé"; MISSING+=("neovim")
 fi
 
-# Git (requis par lazy.nvim)
 if has git; then ok "git"; else fail "git non installé"; MISSING+=("git"); fi
-
-# ripgrep (requis par Telescope live_grep)
 if has rg; then ok "ripgrep"; else fail "ripgrep non installé"; MISSING+=("ripgrep"); fi
 
-# Node.js / Bun (pour les LSP JS/TS et prettier)
-if has bun; then
-    ok "bun $(bun --version 2>/dev/null)"
-elif has node; then
-    ok "node $(node --version 2>/dev/null)"
+# nvim-treesitter branche main compile via `tree-sitter build`, sous-commande
+# absente avant 0.25 (dont la version packagée par apt). On teste la capacité,
+# pas le numéro de version.
+if ! has tree-sitter; then
+    fail "tree-sitter absent — les parsers ne pourront pas être compilés"
+    MISSING+=("tree-sitter-cli")
+elif ! tree-sitter build --help &>/dev/null; then
+    fail "tree-sitter $(tree-sitter --version | grep -oP '[\d.]+' | head -1) trop ancien (pas de sous-commande 'build')"
+    info "→ cargo install tree-sitter-cli, ou le binaire des releases GitHub"
+    MISSING+=("tree-sitter-cli>=0.25")
 else
-    fail "Ni bun ni node — nécessaire pour les LSP JS/TS"
-    MISSING+=("nodejs|bun")
+    ok "tree-sitter $(tree-sitter --version | grep -oP '[\d.]+' | head -1)"
 fi
 
-# Python (pour pyright, ruff)
+if has bun; then ok "bun $(bun --version)"
+elif has node; then ok "node $(node --version)"
+else fail "Ni bun ni node — requis pour les LSP JS/TS"; MISSING+=("bun|nodejs"); fi
+
 if has python3; then ok "python3"; else warn "python3 absent — LSP Python non fonctionnel"; fi
 
 if [[ ${#MISSING[@]} -gt 0 ]]; then
     echo ""
-    echo "Dépendances système manquantes : ${MISSING[*]}"
+    info "Paquets système manquants : ${MISSING[*]}"
     case "$PM" in
-        apt) echo "  sudo apt install neovim git ripgrep nodejs npm" ;;
-        dnf) echo "  sudo dnf install neovim git ripgrep nodejs npm" ;;
-        pacman) echo "  sudo pacman -S neovim git ripgrep nodejs npm" ;;
-        brew) echo "  brew install neovim git ripgrep node" ;;
-        *) echo "  Installer manuellement : ${MISSING[*]}" ;;
+        apt)    info "  sudo apt install neovim git ripgrep nodejs npm" ;;
+        dnf)    info "  sudo dnf install neovim git ripgrep nodejs npm" ;;
+        pacman) info "  sudo pacman -S neovim git ripgrep nodejs npm" ;;
+        brew)   info "  brew install neovim git ripgrep node" ;;
+        *)      info "  à installer manuellement" ;;
     esac
-    if $CHECK_ONLY; then exit 1; fi
-    echo ""
-    read -rp "Continuer quand même ? [y/N] " ans
-    [[ "$ans" =~ ^[yY]$ ]] || exit 1
 fi
 
+# =============================================================================
+step "Outils de développement"
+# =============================================================================
+
+# nom_commande:description
+DEV_TOOLS=(
+    "pyright:LSP Python"
+    "bash-language-server:LSP Bash"
+    "typescript-language-server:LSP JS/TS"
+    "svelteserver:LSP Svelte"
+    "rust-analyzer:LSP Rust"
+    "gopls:LSP Go"
+    "ruff:lint/format Python"
+    "stylua:format Lua"
+    "prettier:format JS/TS/HTML/CSS/JSON/YAML/MD"
+    "xmllint:format XML"
+)
+
+ABSENT=()
+for entry in "${DEV_TOOLS[@]}"; do
+    cmd="${entry%%:*}"; desc="${entry#*:}"
+    if has "$cmd"; then
+        ok "$(printf '%-28s' "$cmd") ${DIM}$desc${NC}"
+    else
+        warn "$(printf '%-28s' "$cmd") ${DIM}$desc${NC}"
+        ABSENT+=("$cmd")
+    fi
+done
+
 if $CHECK_ONLY; then
+    step "Résumé"
+    ok "$(( ${#DEV_TOOLS[@]} - ${#ABSENT[@]} ))/${#DEV_TOOLS[@]} outils présents"
+    [[ ${#ABSENT[@]} -gt 0 ]] && info "absents : ${ABSENT[*]}"
     echo ""
-    echo "=== Vérification des outils de développement ==="
-    check_tool() {
-        if has "$1"; then ok "$1"; else warn "$1 absent"; fi
-    }
-    # LSP servers
-    check_tool pyright
-    check_tool bash-language-server
-    check_tool typescript-language-server
-    check_tool svelte-language-server
-    check_tool rust-analyzer
-    check_tool ruff
-    # Formatters
-    check_tool stylua
-    check_tool prettier
-    check_tool xmllint
-    echo ""
+    [[ $FAILURES -gt 0 ]] && exit 1
     exit 0
 fi
 
+if [[ ${#MISSING[@]} -gt 0 ]] && ! $DRY_RUN; then
+    echo ""
+    read -rp "Prérequis manquants. Continuer quand même ? [y/N] " ans
+    [[ "$ans" =~ ^[yY]$ ]] || exit 1
+fi
+
 # =============================================================================
-echo ""
-echo "=== [1/3] Installation de la config ==="
+step "[1/3] Déploiement de la configuration"
 # =============================================================================
 
-mkdir -p "$NVIM_CONFIG_DIR"
+# Symlink du dossier entier, pas fichier par fichier : tout ajout au dépôt
+# (ftplugin/, lazy-lock.json...) est déployé sans retoucher ce script.
+# -n est indispensable : sans lui, ln -sf sur un symlink de dossier existant
+# créerait le lien à l'intérieur de la cible.
+run mkdir -p "$(dirname "$NVIM_CONFIG_DIR")"
 
-if [ -f "$NVIM_CONFIG_DIR/init.lua" ]; then
-    # Ne pas sauvegarder si c'est déjà un symlink vers notre repo
-    if [ "$(readlink -f "$NVIM_CONFIG_DIR/init.lua")" != "$(readlink -f "$REPO_DIR/init.lua")" ]; then
-        BACKUP="$NVIM_CONFIG_DIR/init.lua.bak-$(date +%Y%m%d%H%M%S)"
-        warn "Backup de l'existant → $BACKUP"
-        cp "$NVIM_CONFIG_DIR/init.lua" "$BACKUP"
+ALREADY_DEPLOYED=false
+if [ -L "$NVIM_CONFIG_DIR" ]; then
+    if [ "$(readlink -f "$NVIM_CONFIG_DIR")" = "$(readlink -f "$REPO_DIR")" ]; then
+        ALREADY_DEPLOYED=true
+        ok "déjà déployé → $REPO_DIR"
+    else
+        warn "symlink existant vers $(readlink -f "$NVIM_CONFIG_DIR") — remplacé"
+        run rm "$NVIM_CONFIG_DIR"
     fi
+elif [ -e "$NVIM_CONFIG_DIR" ]; then
+    BACKUP="$NVIM_CONFIG_DIR.bak-$(date +%Y%m%d%H%M%S)"
+    warn "config existante déplacée → $BACKUP"
+    run mv "$NVIM_CONFIG_DIR" "$BACKUP"
 fi
 
-# Symlink plutôt que copie — les modifs au repo se propagent directement
-ln -sf "$REPO_DIR/init.lua" "$NVIM_CONFIG_DIR/init.lua"
-ok "init.lua → $NVIM_CONFIG_DIR/init.lua (symlink)"
+if ! $ALREADY_DEPLOYED; then
+    run ln -sfn "$REPO_DIR" "$NVIM_CONFIG_DIR"
+    ok "$NVIM_CONFIG_DIR → $REPO_DIR"
+fi
 
 # =============================================================================
-echo ""
-echo "=== [2/3] Installation des serveurs LSP et formatters ==="
+step "[2/3] Serveurs LSP et formatters"
 # =============================================================================
 
-install_if_missing() {
-    local cmd="$1"
-    local name="${2:-$1}"
-    shift 2
-    if has "$cmd"; then
-        ok "$name (déjà installé)"
-        return 0
+if [[ ${#ABSENT[@]} -eq 0 ]]; then
+    ok "tout est déjà installé"
+else
+    for cmd in "${ABSENT[@]}"; do
+        case "$cmd" in
+            pyright|bash-language-server|prettier)
+                pkg_install "$cmd" && installed "$cmd" || warn "échec : $cmd" ;;
+            typescript-language-server)
+                pkg_install typescript typescript-language-server && installed "$cmd" || warn "échec : $cmd" ;;
+            svelteserver)
+                pkg_install svelte-language-server && installed "$cmd" || warn "échec : $cmd" ;;
+            ruff)
+                if has uv; then run uv tool install ruff && installed "ruff" || warn "échec : ruff"
+                elif has pip3; then run pip3 install --user ruff && installed "ruff" || warn "échec : ruff"
+                else warn "ruff : ni uv ni pip3 — à installer manuellement"; fi ;;
+            stylua)
+                if has cargo; then run cargo install stylua && installed "stylua" || warn "échec : stylua"
+                else warn "stylua : cargo absent — cargo install stylua"; fi ;;
+            rust-analyzer)
+                warn "rust-analyzer : rustup component add rust-analyzer" ;;
+            gopls)
+                if has go; then run go install golang.org/x/tools/gopls@latest && installed "gopls" || warn "échec : gopls"
+                else warn "gopls : go absent — https://go.dev/dl/"; fi ;;
+            xmllint)
+                case "$PM" in
+                    apt)    warn "xmllint : sudo apt install libxml2-utils" ;;
+                    dnf)    warn "xmllint : sudo dnf install libxml2" ;;
+                    pacman) warn "xmllint : sudo pacman -S libxml2" ;;
+                    brew)   warn "xmllint : brew install libxml2" ;;
+                    *)      warn "xmllint : installer le paquet libxml2" ;;
+                esac ;;
+        esac
+    done
+fi
+
+# =============================================================================
+step "[3/3] Plugins et parsers Treesitter"
+# =============================================================================
+
+if $DRY_RUN; then
+    info "[dry-run] nvim --headless +Lazy! restore +qa"
+else
+    info "installation aux versions de lazy-lock.json (1-2 min)..."
+    # restore, pas sync : sync flotterait vers le dernier commit de chaque
+    # plugin et réécrirait le lockfile.
+    LAZY_LOG=$(mktemp)
+    if nvim --headless "+Lazy! restore" +qa >"$LAZY_LOG" 2>&1; then
+        # Un échec partiel peut sortir en 0 : on ne se fie pas au code retour seul.
+        if grep -qiE '^\s*(error|failed)' "$LAZY_LOG"; then
+            fail "Lazy restore a signalé des erreurs :"
+            grep -iE '^\s*(error|failed)' "$LAZY_LOG" | head -10 | sed 's/^/      /'
+        else
+            PLUGIN_COUNT=$(python3 -c "import json;print(len(json.load(open('$REPO_DIR/lazy-lock.json'))))" 2>/dev/null || echo "?")
+            ok "$PLUGIN_COUNT plugins installés"
+        fi
+    else
+        fail "Lazy restore a échoué :"
+        tail -20 "$LAZY_LOG" | sed 's/^/      /'
     fi
-    echo "  Installation de $name..."
-    "$@" && ok "$name" || warn "Échec installation $name"
-}
-
-# --- LSP Servers ---
-
-# pyright (Python type checker / LSP)
-install_if_missing pyright pyright npm_install pyright
-
-# bash-language-server
-install_if_missing bash-language-server bash-language-server npm_install bash-language-server
-
-# typescript-language-server (+ typescript requis)
-install_if_missing typescript-language-server typescript-language-server npm_install typescript typescript-language-server
-
-# svelte-language-server
-install_if_missing svelteserver svelte-language-server npm_install svelte-language-server
-
-# ruff (Python linter + formatter)
-if has ruff; then
-    ok "ruff (déjà installé)"
-elif has uv; then
-    echo "  Installation de ruff via uv..."
-    uv tool install ruff && ok "ruff" || warn "Échec installation ruff"
-elif has pip3; then
-    echo "  Installation de ruff via pip..."
-    pip3 install --user ruff && ok "ruff" || warn "Échec installation ruff"
-else
-    warn "ruff : ni uv ni pip3 trouvé — installer manuellement"
-fi
-
-# rust-analyzer (installé via rustup — on ne l'installe pas nous-mêmes)
-if has rust-analyzer; then
-    ok "rust-analyzer (déjà installé)"
-else
-    warn "rust-analyzer absent — installer via : rustup component add rust-analyzer"
-fi
-
-# --- Formatters ---
-
-# stylua (Lua formatter)
-if has stylua; then
-    ok "stylua (déjà installé)"
-elif has cargo; then
-    echo "  Installation de stylua via cargo..."
-    cargo install stylua && ok "stylua" || warn "Échec installation stylua"
-else
-    warn "stylua absent — installer via cargo install stylua"
-fi
-
-# prettier (JS/TS/HTML/CSS/JSON/YAML/MD formatter)
-install_if_missing prettier prettier npm_install prettier
-
-# xmllint (XML formatter — paquet système)
-if has xmllint; then
-    ok "xmllint (déjà installé)"
-else
-    case "$PM" in
-        apt) warn "xmllint absent — sudo apt install libxml2-utils" ;;
-        dnf) warn "xmllint absent — sudo dnf install libxml2" ;;
-        pacman) warn "xmllint absent — sudo pacman -S libxml2" ;;
-        brew) warn "xmllint absent — brew install libxml2" ;;
-        *) warn "xmllint absent — installer le paquet libxml2" ;;
-    esac
+    rm -f "$LAZY_LOG"
 fi
 
 # =============================================================================
-echo ""
-echo "=== [3/3] Bootstrap des plugins et parsers ==="
+step "Résumé"
 # =============================================================================
 
-echo "  Lancement de nvim pour installer les plugins (lazy.nvim)..."
-echo "  et les parsers Treesitter... (peut prendre 1-2 min)"
-nvim --headless "+Lazy! sync" +qa 2>/dev/null && ok "Plugins installés" || warn "Lazy sync — vérifier manuellement avec :Lazy"
+if [[ $FAILURES -gt 0 ]]; then
+    fail "$FAILURES échec(s), $WARNINGS avertissement(s)"
+    echo ""
+    exit 1
+fi
 
-# =============================================================================
-echo ""
-echo "=== Installation terminée ==="
-echo ""
-echo "  Lancer nvim et vérifier :"
-echo "    :checkhealth              ← état général"
-echo "    :Lazy                     ← plugins"
-echo "    :LspInfo                  ← serveurs LSP"
-echo "    :ConformInfo              ← formatters"
-echo ""
+if [[ $WARNINGS -gt 0 ]]; then
+    ok "installation terminée, $WARNINGS avertissement(s)"
+else
+    ok "installation terminée"
+fi
+
+cat <<EOF
+
+  Vérifier dans nvim :
+    :checkhealth     état général
+    :Lazy            plugins
+    :ConformInfo     formatters
+
+EOF
