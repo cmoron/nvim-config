@@ -300,16 +300,16 @@ JDTLS_DIR="$HOME/.local/share/jdtls"
 JDTLS_BASE="https://download.eclipse.org/jdtls/snapshots"
 JDTLS_STAMP="$JDTLS_DIR/.installed-from"
 
-JAVA_MAJOR=0
-if has java; then
-    # `openjdk version "25.0.2"` → 25 ; `"1.8.0_..."` → 1, donc rejeté plus bas.
-    JAVA_MAJOR=$(java -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/')
-    # Si le motif ne matche pas, sed renvoie la ligne entière : on neutralise.
-    case "$JAVA_MAJOR" in ''|*[!0-9]*) JAVA_MAJOR=0 ;; esac
-fi
+# macOS fournit un stub /usr/bin/java qui échoue faute de JDK : la présence de
+# la commande ne prouve rien, seule sa sortie compte. Le `|| true` est vital,
+# sinon pipefail fait sortir le script sur ce stub.
+# `openjdk version "25.0.2"` → 25 ; `"1.8.0_..."` → 1, donc rejeté plus bas.
+JAVA_MAJOR=$(java -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/' || true)
+# Si le motif ne matche pas, sed renvoie la ligne entière : on neutralise.
+case "$JAVA_MAJOR" in ''|*[!0-9]*) JAVA_MAJOR=0 ;; esac
 
-if ! has java; then
-    warn "aucun JDK détecté — jdtls non installé (49 Mo épargnés)"
+if (( JAVA_MAJOR == 0 )); then
+    warn "aucun JDK utilisable détecté — jdtls non installé (49 Mo épargnés)"
     info "→ relancer ce script après avoir installé un JDK 21+"
 elif (( JAVA_MAJOR < 21 )); then
     warn "JDK trop ancien pour jdtls (21+ requis)"
