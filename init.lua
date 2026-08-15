@@ -168,6 +168,12 @@ map("n", "<S-Tab>", ":bprevious<CR>")
 map("n", "<S-F12>", ":bnext<CR>")
 map("n", "<S-F11>", ":bprevious<CR>")
 
+-- Ferme le buffer courant sans toucher à la fenêtre. `:bdelete` referme le
+-- split quand le buffer n'est affiché qu'une fois ; Snacks conserve le layout.
+vim.keymap.set("n", "<leader>x", function()
+    Snacks.bufdelete()
+end, { silent = true, desc = "Fermer le buffer courant" })
+
 -- Indent/Dedent en mode insertion
 map("i", "<S-Tab>", "<C-o><<")
 
