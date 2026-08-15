@@ -35,6 +35,9 @@ ${BOLD}Usage:${NC} install.sh [OPTIONS]
 Déploie la configuration Neovim de ce dépôt et installe ses dépendances
 (serveurs LSP, formatters, plugins aux versions de lazy-lock.json).
 
+Le serveur Java jdtls est installé depuis download.eclipse.org, à sa dernière
+version publiée, uniquement si un JDK 21+ est présent.
+
 ${BOLD}Options:${NC}
   -c, --check      Vérifie prérequis et outils, n'installe et ne modifie rien
   -n, --dry-run    Affiche les actions sans les exécuter
@@ -208,7 +211,7 @@ if [[ ${#MISSING[@]} -gt 0 ]] && ! $DRY_RUN; then
 fi
 
 # =============================================================================
-step "[1/3] Déploiement de la configuration"
+step "[1/4] Déploiement de la configuration"
 # =============================================================================
 
 # Symlink du dossier entier, pas fichier par fichier : tout ajout au dépôt
@@ -238,7 +241,7 @@ if ! $ALREADY_DEPLOYED; then
 fi
 
 # =============================================================================
-step "[2/3] Serveurs LSP et formatters"
+step "[2/4] Serveurs LSP et formatters"
 # =============================================================================
 
 if [[ ${#ABSENT[@]} -eq 0 ]]; then
@@ -277,7 +280,63 @@ else
 fi
 
 # =============================================================================
-step "[3/3] Plugins et parsers Treesitter"
+step "[3/4] Serveur Java (jdtls)"
+# =============================================================================
+
+# jdtls n'est pas distribué par un gestionnaire de paquets : on le tire du
+# site Eclipse. Choix assumé de suivre la dernière version publiée plutôt que
+# d'épingler — contrairement aux plugins, verrouillés par lazy-lock.json.
+JDTLS_DIR="$HOME/.local/share/jdtls"
+JDTLS_BASE="https://download.eclipse.org/jdtls/snapshots"
+JDTLS_STAMP="$JDTLS_DIR/.installed-from"
+
+JAVA_MAJOR=0
+if has java; then
+    # `openjdk version "25.0.2"` → 25 ; `"1.8.0_..."` → 1, donc rejeté plus bas.
+    JAVA_MAJOR=$(java -version 2>&1 | grep -oP '(?<=version ")\d+' | head -1)
+fi
+
+if ! has java; then
+    warn "aucun JDK détecté — jdtls non installé (49 Mo épargnés)"
+    info "→ relancer ce script après avoir installé un JDK 21+"
+elif (( JAVA_MAJOR < 21 )); then
+    warn "JDK trop ancien pour jdtls (21+ requis)"
+    info "→ un JDK 21+ peut coexister avec celui-ci"
+else
+    JDTLS_LATEST=$(curl -fsSL "$JDTLS_BASE/latest.txt" 2>/dev/null || true)
+    if [ -z "$JDTLS_LATEST" ]; then
+        warn "download.eclipse.org injoignable — jdtls laissé en l'état"
+    elif [ -f "$JDTLS_STAMP" ] && [ "$(cat "$JDTLS_STAMP")" = "$JDTLS_LATEST" ]; then
+        ok "jdtls à jour ($(echo "$JDTLS_LATEST" | grep -oP '\d+\.\d+\.\d+'))"
+    elif $DRY_RUN; then
+        info "[dry-run] installerait $JDTLS_LATEST (~49 Mo) → $JDTLS_DIR"
+    else
+        info "téléchargement de jdtls $(echo "$JDTLS_LATEST" | grep -oP '\d+\.\d+\.\d+') (~49 Mo)..."
+        # Staging à côté de la cible : même système de fichiers, donc la
+        # permutation finale est un simple rename.
+        STAGING="$JDTLS_DIR.staging-$$"
+        mkdir -p "$STAGING"
+        if curl -fsSL "$JDTLS_BASE/$JDTLS_LATEST" | tar -xz -C "$STAGING" 2>/dev/null \
+           && compgen -G "$STAGING/plugins/org.eclipse.equinox.launcher_*.jar" >/dev/null; then
+            # L'archive s'extrait à plat : écraser laisserait cohabiter les jars
+            # des deux versions. On permute.
+            if [ -d "$JDTLS_DIR" ]; then
+                rm -rf "$JDTLS_DIR.old"
+                mv "$JDTLS_DIR" "$JDTLS_DIR.old"
+            fi
+            mv "$STAGING" "$JDTLS_DIR"
+            echo "$JDTLS_LATEST" > "$JDTLS_STAMP"
+            rm -rf "$JDTLS_DIR.old"
+            ok "jdtls $(echo "$JDTLS_LATEST" | grep -oP '\d+\.\d+\.\d+') installé"
+        else
+            rm -rf "$STAGING"
+            fail "téléchargement ou extraction de jdtls en échec — installation précédente intacte"
+        fi
+    fi
+fi
+
+# =============================================================================
+step "[4/4] Plugins et parsers Treesitter"
 # =============================================================================
 
 if $DRY_RUN; then
