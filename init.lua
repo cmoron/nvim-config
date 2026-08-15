@@ -557,10 +557,42 @@ require("lazy").setup({
         config = function()
             local dap, dapui = require("dap"), require("dapui")
             dapui.setup()
-            -- Les panneaux suivent la session : rien à ouvrir ni fermer à la main.
-            dap.listeners.after.event_initialized["dapui"] = function() dapui.open() end
-            dap.listeners.before.event_terminated["dapui"] = function() dapui.close() end
-            dap.listeners.before.event_exited["dapui"] = function() dapui.close() end
+
+            local function snacks_box()
+                for _, w in ipairs(vim.api.nvim_list_wins()) do
+                    if vim.bo[vim.api.nvim_win_get_buf(w)].filetype == "snacks_layout_box" then
+                        return w
+                    end
+                end
+            end
+
+            -- Largeur de l'explorer relevée au démarrage de la session, avant
+            -- qu'un seul panneau ne s'ouvre : c'est la valeur de référence.
+            local explorer_width
+            dap.listeners.after.event_initialized["dapui"] = function()
+                local w = snacks_box()
+                explorer_width = w and vim.api.nvim_win_get_width(w)
+            end
+
+            -- Les panneaux n'apparaissent qu'à un arrêt réel, pas au démarrage :
+            -- un test qui passe au vert ne doit pas faire clignoter l'écran.
+            dap.listeners.after.event_stopped["dapui"] = function()
+                dapui.open()
+            end
+
+            -- En se fermant, nvim-dap-ui rend ses colonnes à la fenêtre voisine
+            -- et la boîte de layout de snacks les absorbe : sans ça l'explorer
+            -- gagne une quarantaine de colonnes à chaque session.
+            local function close()
+                dapui.close()
+                local w = snacks_box()
+                if w and explorer_width then
+                    vim.api.nvim_win_set_width(w, explorer_width)
+                end
+                explorer_width = nil
+            end
+            dap.listeners.before.event_terminated["dapui"] = close
+            dap.listeners.before.event_exited["dapui"] = close
         end,
     },
 
