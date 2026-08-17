@@ -137,7 +137,11 @@ install_vscode_jars() {
     local vsix staging
     vsix=$(tmpfile)
     staging="$dir.staging-$$"
-    if curl -fsSL --compressed -o "$vsix" "$url" \
+    # Le marketplace renvoie des 503 sporadiques : constatés sur deux appels
+    # consécutifs encadrant un 200 sur la même URL. Sans retry, un build long
+    # se casse sur un aléa de quelques secondes.
+    if curl -fsSL --compressed --retry 3 --retry-all-errors --retry-delay 3 \
+            -o "$vsix" "$url" \
        && unzip -qo "$vsix" 'extension/server/*.jar' -d "$staging" 2>/dev/null \
        && compgen -G "$staging/extension/server/$probe" >/dev/null; then
         # L'extension change de jars entre versions : on remplace, sans fusionner.
