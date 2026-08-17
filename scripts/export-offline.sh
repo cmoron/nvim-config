@@ -75,6 +75,14 @@ find "$PLUGINS_DIR" -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
 # site/parser (exporté à l'étape suivante), jamais ce dossier.
 rm -rf "$PLUGINS_DIR/nvim-treesitter/parser"
 
+# blink.cmp compare le fichier `version` de son binaire au tag git du plugin
+# pour décider s'il doit retélécharger. Les .git venant d'être supprimés, il ne
+# trouve plus de tag, conclut « périmé », tente un téléchargement et retombe
+# sur son implémentation Lua faute de réseau. Sans ce fichier, il reconnaît le
+# cas « binaire posé à la main » et charge le .so tel quel (download/init.lua).
+rm -f "$PLUGINS_DIR"/blink.cmp/target/release/version \
+      "$PLUGINS_DIR"/blink.cmp/target/release/*.sha256
+
 # Copier les parsers Treesitter pré-compilés (branche main : site/parser)
 echo -e "\n${GREEN}[4/6]${NC} Copie des parsers Treesitter..."
 TREESITTER_PARSER_DEST="$EXPORT_DIR/treesitter-parsers"
