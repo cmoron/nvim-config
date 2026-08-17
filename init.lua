@@ -761,8 +761,27 @@ vim.api.nvim_create_autocmd("FileType", {
         -- Config native selon l'OS
         local config_dir = jdtls_dir .. (vim.fn.has("macunix") == 1 and "/config_mac" or "/config_linux")
 
-        -- Workspace isolé par projet (évite les conflits entre projets)
-        local project_name = vim.fn.fnamemodify(vim.fn.getcwd(), ":p:h:t")
+        -- Racine du projet. build.xml, .classpath et .project couvrent Ant et
+        -- Eclipse : sans eux, un projet legacy sans .git ne donne aucune
+        -- racine, donc aucun classpath, donc aucun test détecté. Ils sont
+        -- aussi plus proches du module que le .git d'un dépôt englobant.
+        local root_dir = jdtls.setup.find_root({
+            "build.xml",
+            ".classpath",
+            ".project",
+            "pom.xml",
+            "build.gradle",
+            "mvnw",
+            "gradlew",
+            ".git",
+        })
+
+        -- Workspace isolé par projet, dérivé de la racine et non du cwd :
+        -- ouvrir un fichier depuis un sous-dossier donnait un workspace vierge
+        -- nommé d'après ce sous-dossier, sans rapport avec le projet importé.
+        -- ponytail: deux projets homonymes partagent encore un workspace ;
+        -- suffixer par un hash du chemin si le cas se présente.
+        local project_name = vim.fn.fnamemodify(root_dir or vim.fn.getcwd(), ":p:h:t")
         local workspace_dir = vim.fn.expand("~/.cache/jdtls/workspaces/") .. project_name
 
         -- Capabilities depuis blink.cmp
@@ -797,20 +816,7 @@ vim.api.nvim_create_autocmd("FileType", {
                 "-configuration", config_dir,
                 "-data", workspace_dir,
             },
-            -- build.xml, .project et .classpath couvrent les projets Ant et
-            -- Eclipse : sans eux, un projet legacy sans .git ne donne aucune
-            -- racine, donc aucun classpath, donc aucun test détecté. Ils sont
-            -- aussi plus proches du module que le .git d'un dépôt englobant.
-            root_dir = jdtls.setup.find_root({
-                "build.xml",
-                ".classpath",
-                ".project",
-                "pom.xml",
-                "build.gradle",
-                "mvnw",
-                "gradlew",
-                ".git",
-            }),
+            root_dir = root_dir,
             capabilities = capabilities,
             -- Les jars s'enfichent dans jdtls : c'est le serveur lui-même qui
             -- expose ensuite l'adaptateur et le lanceur, pas un exécutable séparé.
