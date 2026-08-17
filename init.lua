@@ -624,6 +624,29 @@ require("lazy").setup({
                 end,
             })
 
+            -- Config spécifique à pyright : pointer l'interpréteur du projet.
+            -- Sans cela pyright prend le `python` du PATH et signale en erreur
+            -- tous les imports de dépendances, sauf à lancer nvim depuis un
+            -- venv activé. `.venv` à la racine est la convention d'uv.
+            -- Écrit dans on_init, pas dans before_init : le client fige sa copie
+            -- de `settings` à sa création, avant que before_init ne tourne, donc
+            -- y réassigner une table n'a aucun effet.
+            vim.lsp.config("pyright", {
+                on_init = function(client)
+                    -- root_dir est nil sur un fichier ouvert hors projet
+                    if not client.root_dir then
+                        return
+                    end
+                    local python = client.root_dir .. "/.venv/bin/python"
+                    if vim.uv.fs_stat(python) then
+                        client.settings = vim.tbl_deep_extend("force", client.settings or {}, {
+                            python = { pythonPath = python },
+                        })
+                        client:notify("workspace/didChangeConfiguration", { settings = client.settings })
+                    end
+                end,
+            })
+
             -- Config spécifique à lua_ls : connaître l'API vim.* (complétion + doc)
             vim.lsp.config("lua_ls", {
                 settings = {
