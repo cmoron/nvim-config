@@ -44,21 +44,26 @@ if [ ! -d "$LAZY_DIR" ]; then
 fi
 
 # Créer le dossier d'export
-echo -e "${GREEN}[1/5]${NC} Création de la structure d'export..."
+echo -e "${GREEN}[1/6]${NC} Création de la structure d'export..."
 rm -rf "$EXPORT_DIR"
 mkdir -p "$DIST_DIR"
 mkdir -p "$PLUGINS_DIR"
 mkdir -p "$EXPORT_DIR/config"
 
+# Trace de la plateforme d'export : les parsers, le binaire fuzzy de blink et
+# l'éventuel runtime nvim sont des binaires natifs. L'install refuse de poser
+# un bundle étranger plutôt que de laisser découvrir la panne à l'usage.
+printf '%s %s\n' "$(uname -s)" "$(uname -m)" > "$EXPORT_DIR/PLATFORM"
+
 # Copier les fichiers de configuration
-echo -e "${GREEN}[2/5]${NC} Copie des fichiers de configuration..."
+echo -e "${GREEN}[2/6]${NC} Copie des fichiers de configuration..."
 cp "$REPO_DIR/init.lua" "$EXPORT_DIR/config/"
 if [ -f "$REPO_DIR/lazy-lock.json" ]; then
     cp "$REPO_DIR/lazy-lock.json" "$EXPORT_DIR/config/"
 fi
 
 # Copier les plugins tels qu'installés (inclut le binaire précompilé de blink.cmp)
-echo -e "\n${GREEN}[3/5]${NC} Copie des plugins installés..."
+echo -e "\n${GREEN}[3/6]${NC} Copie des plugins installés..."
 cp -R "$LAZY_DIR/." "$PLUGINS_DIR/"
 PLUGIN_COUNT=$(ls -1 "$PLUGINS_DIR" | wc -l | tr -d ' ')
 echo -e "${GREEN}✓${NC} $PLUGIN_COUNT plugins copiés"
@@ -71,7 +76,7 @@ find "$PLUGINS_DIR" -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
 rm -rf "$PLUGINS_DIR/nvim-treesitter/parser"
 
 # Copier les parsers Treesitter pré-compilés (branche main : site/parser)
-echo -e "\n${GREEN}[4/5]${NC} Copie des parsers Treesitter..."
+echo -e "\n${GREEN}[4/6]${NC} Copie des parsers Treesitter..."
 TREESITTER_PARSER_DEST="$EXPORT_DIR/treesitter-parsers"
 if [ -d "$PARSER_DIR" ]; then
     mkdir -p "$TREESITTER_PARSER_DEST"
@@ -83,14 +88,30 @@ else
     echo -e "  Lancez Neovim une fois pour les compiler."
 fi
 
-# Copier le serveur jdtls : impossible à récupérer sur une machine sans réseau
-echo -e "\n${GREEN}[5/5]${NC} Copie du serveur jdtls (Java)..."
-JDTLS_DIR="$HOME/.local/share/jdtls"
-if [ -d "$JDTLS_DIR" ]; then
-    cp -R "$JDTLS_DIR" "$EXPORT_DIR/jdtls"
-    echo -e "${GREEN}✓${NC} jdtls copié ($(du -sh "$EXPORT_DIR/jdtls" | cut -f1))"
+# Copier la chaîne Java : jdtls vient d'Eclipse, l'adaptateur de debug et le
+# lanceur de tests du marketplace VS Code. Aucun des trois n'est distribué en
+# rpm ou en npm, donc aucun ne s'attrape depuis une machine sans réseau.
+echo -e "\n${GREEN}[5/6]${NC} Copie de la chaîne Java (jdtls, debug, tests)..."
+for java_component in jdtls java-debug java-test; do
+    src="$HOME/.local/share/$java_component"
+    if [ -d "$src" ]; then
+        cp -R "$src" "$EXPORT_DIR/$java_component"
+        echo -e "${GREEN}✓${NC} $java_component copié ($(du -sh "$EXPORT_DIR/$java_component" | cut -f1))"
+    else
+        echo -e "${YELLOW}⚠${NC} $java_component absent de $src — non embarqué."
+    fi
+done
+
+# Runtime Neovim : la config exige 0.12+ (nvim-treesitter branche main), que
+# les dépôts d'une distribution ne servent pas toujours. NVIM_TARBALL, posé par
+# export-offline-linux.sh, rend le bundle indépendant du gestionnaire de
+# paquets de la cible.
+echo -e "\n${GREEN}[6/6]${NC} Copie du runtime Neovim..."
+if [ -n "${NVIM_TARBALL:-}" ] && [ -f "$NVIM_TARBALL" ]; then
+    cp "$NVIM_TARBALL" "$EXPORT_DIR/$(basename "$NVIM_TARBALL")"
+    echo -e "${GREEN}✓${NC} $(basename "$NVIM_TARBALL") embarqué"
 else
-    echo -e "${YELLOW}⚠${NC} jdtls absent de $JDTLS_DIR — le support Java ne sera pas embarqué."
+    echo -e "${YELLOW}⚠${NC} Pas de NVIM_TARBALL — Neovim 0.12+ devra exister sur la cible."
 fi
 
 # Créer le script d'installation
@@ -113,24 +134,64 @@ echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Installation Neovim (offline)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
-# Vérifier que Neovim est installé
-if ! command -v nvim &> /dev/null; then
-    echo -e "${RED}Erreur: Neovim n'est pas installé${NC}"
-    echo -e "Installez Neovim >= 0.12 avant de continuer"
-    exit 1
-fi
-
-NVIM_VERSION=$(nvim --version | head -n1 | grep -oE 'v[0-9]+\.[0-9]+' || echo "v0.0")
-echo -e "${BLUE}→${NC} Neovim version: $NVIM_VERSION"
-if [ "$(echo "$NVIM_VERSION" | grep -oE '[0-9]+$')" -lt 12 ]; then
-    echo -e "${YELLOW}Attention:${NC} cette configuration requiert Neovim >= 0.12"
-    echo -e "(vim.lsp.config, nvim-treesitter branche main)"
+# Le bundle transporte des binaires natifs (parsers Treesitter, fuzzy blink,
+# runtime nvim). Les poser sur une autre plateforme produit des pannes
+# obscures à l'usage : mieux vaut refuser ici.
+if [ -f PLATFORM ]; then
+    BUNDLE_PLATFORM=$(cat PLATFORM)
+    HOST_PLATFORM="$(uname -s) $(uname -m)"
+    if [ "$BUNDLE_PLATFORM" != "$HOST_PLATFORM" ]; then
+        echo -e "${RED}Erreur: bundle construit pour '$BUNDLE_PLATFORM', machine '$HOST_PLATFORM'${NC}"
+        echo -e "Régénérez le bundle sur la bonne plateforme (scripts/export-offline-linux.sh)."
+        echo -e "${YELLOW}Pour passer outre malgré tout: rm PLATFORM${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓${NC} Plateforme: $HOST_PLATFORM"
 fi
 
 # Chemins
 NVIM_CONFIG_DIR="$HOME/.config/nvim"
 NVIM_DATA_DIR="$HOME/.local/share/nvim"
 LAZY_DIR="$NVIM_DATA_DIR/lazy"
+
+nvim_major_minor() {
+    nvim --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+' | head -1
+}
+
+# Runtime Neovim embarqué : extrait sous ~/.local/share, exposé via
+# ~/.local/bin. Aucune écriture hors du HOME, donc utilisable sans droits root,
+# y compris sur un système à racine immuable.
+NVIM_ARCHIVE=$(ls nvim-linux-*.tar.gz 2>/dev/null | head -1 || true)
+NVIM_VERSION=$(nvim_major_minor || echo "0.0")
+NVIM_MINOR=$(echo "${NVIM_VERSION:-0.0}" | cut -d. -f2)
+
+if [ -n "$NVIM_ARCHIVE" ] && { ! command -v nvim &> /dev/null || [ "${NVIM_MINOR:-0}" -lt 12 ]; }; then
+    echo -e "${BLUE}→${NC} Installation du runtime Neovim embarqué ($NVIM_ARCHIVE)..."
+    rm -rf "$HOME/.local/share/neovim"
+    mkdir -p "$HOME/.local/share/neovim" "$HOME/.local/bin"
+    # --strip-components : l'archive officielle a un dossier racine versionné.
+    tar -xzf "$NVIM_ARCHIVE" -C "$HOME/.local/share/neovim" --strip-components=1
+    ln -sf "$HOME/.local/share/neovim/bin/nvim" "$HOME/.local/bin/nvim"
+    export PATH="$HOME/.local/bin:$PATH"
+    echo -e "${GREEN}✓${NC} Neovim installé dans ~/.local/share/neovim"
+    case ":$PATH:" in
+        *":$HOME/.local/bin:"*) ;;
+        *) echo -e "${YELLOW}⚠${NC} Ajoutez ~/.local/bin à votre PATH" ;;
+    esac
+fi
+
+if ! command -v nvim &> /dev/null; then
+    echo -e "${RED}Erreur: Neovim n'est pas installé${NC}"
+    echo -e "Installez Neovim >= 0.12 avant de continuer"
+    exit 1
+fi
+
+NVIM_VERSION=$(nvim_major_minor || echo "0.0")
+echo -e "${BLUE}→${NC} Neovim version: $NVIM_VERSION"
+if [ "$(echo "$NVIM_VERSION" | cut -d. -f2)" -lt 12 ]; then
+    echo -e "${YELLOW}Attention:${NC} cette configuration requiert Neovim >= 0.12"
+    echo -e "(nvim-treesitter branche main refuse de démarrer en dessous)"
+fi
 
 # Demander confirmation si la config existe déjà
 if [ -d "$NVIM_CONFIG_DIR" ] || [ -d "$LAZY_DIR" ]; then
@@ -187,15 +248,17 @@ else
     echo -e "  (nécessite le CLI tree-sitter et un compilateur C)."
 fi
 
-echo -e "\n${GREEN}[4/5]${NC} Installation du serveur jdtls (Java)..."
-if [ -d "jdtls" ]; then
-    # cp -R src dest copierait dans dest s'il existe déjà : on vise le contenu
-    mkdir -p "$HOME/.local/share/jdtls"
-    cp -R jdtls/. "$HOME/.local/share/jdtls/"
-    echo -e "${GREEN}✓${NC} jdtls installé dans $HOME/.local/share/jdtls"
-else
-    echo -e "${YELLOW}⚠${NC} jdtls non inclus dans ce bundle — support Java indisponible."
-fi
+echo -e "\n${GREEN}[4/5]${NC} Installation de la chaîne Java..."
+for java_component in jdtls java-debug java-test; do
+    if [ -d "$java_component" ]; then
+        # cp -R src dest copierait dans dest s'il existe déjà : on vise le contenu
+        mkdir -p "$HOME/.local/share/$java_component"
+        cp -R "$java_component/." "$HOME/.local/share/$java_component/"
+        echo -e "${GREEN}✓${NC} $java_component installé dans $HOME/.local/share/$java_component"
+    else
+        echo -e "${YELLOW}⚠${NC} $java_component non inclus dans ce bundle."
+    fi
+done
 
 echo -e "\n${GREEN}[5/5]${NC} Vérification du binaire blink.cmp..."
 if ls "$LAZY_DIR"/blink.cmp/target/release/libblink_cmp_fuzzy.* &> /dev/null; then
@@ -208,14 +271,14 @@ echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}Installation terminée !${NC}"
 echo -e "${GREEN}========================================${NC}\n"
 
-echo -e "${YELLOW}Notes importantes:${NC}"
-echo -e "1. Installez les dépendances système (voir DEPENDENCIES.md)"
-echo -e "2. Lancez Neovim: ${BLUE}nvim${NC}"
-echo -e "3. ${GREEN}Tout est installé offline${NC} (plugins + binaire blink + parsers)"
-echo -e "\n${YELLOW}Dépendances système minimales:${NC}"
-echo -e "- ripgrep (rg) - pour le grep du picker Snacks"
-echo -e "- fd - pour la recherche de fichiers (optionnel mais recommandé)"
-echo -e "- lazygit - pour <leader>lg (optionnel)"
+echo -e "${GREEN}Lancez Neovim maintenant:${NC} ${BLUE}nvim${NC}"
+echo -e "Plugins, coloration et complétion fonctionnent déjà — rien à télécharger."
+echo -e "\n${YELLOW}À compléter au besoin (voir DEPENDENCIES.md):${NC}"
+echo -e "- ripgrep (rg)  → grep du picker Snacks (<leader>g)"
+echo -e "- fd            → recherche de fichiers, plus rapide"
+echo -e "- JDK 21+       → requis par jdtls (le serveur est là, pas la JVM)"
+echo -e "- lazygit       → <leader>lg"
+echo -e "- serveurs LSP  → paquets npm ordinaires"
 INSTALL_SCRIPT
 
 chmod +x "$EXPORT_DIR/install.sh"
@@ -223,6 +286,13 @@ chmod +x "$EXPORT_DIR/install.sh"
 # Créer la documentation des dépendances
 cat > "$EXPORT_DIR/DEPENDENCIES.md" << 'DEPS_DOC'
 # Dépendances système
+
+Aucune n'est nécessaire pour démarrer : le bundle est autonome. Elles ajoutent
+la recherche, le support Java et les serveurs LSP.
+
+Sur une machine sans accès Internet mais disposant d'un miroir de paquets, les
+commandes ci-dessous fonctionnent telles quelles une fois le miroir configuré :
+ce sont des paquets système et npm ordinaires.
 
 ## Installation selon votre système
 
@@ -262,19 +332,25 @@ brew install lazygit  # optionnel (<leader>lg)
 ## Dépendances détaillées
 
 ### Essentielles
-- **Neovim >= 0.12** (vim.lsp.config, nvim-treesitter branche main)
-- **git** - pour lazy.nvim
-- **ripgrep (rg)** - pour le grep du picker Snacks
-- **fd** - pour la recherche de fichiers (optionnel mais recommandé)
+- **Neovim >= 0.12** — plancher dur, pas une recommandation : nvim-treesitter
+  branche main refuse de démarrer en dessous. Si un `nvim-linux-*.tar.gz`
+  accompagne ce bundle, install.sh s'en charge et il n'y a rien à faire.
+- **git** - pour vim-fugitive et les indicateurs Git
 
 ### Optionnelles
+- **ripgrep (rg)** - grep du picker Snacks (`<leader>g`)
+- **fd** - recherche de fichiers (Snacks a un repli interne plus lent)
 - **lazygit** - interface Git dans Neovim (`<leader>lg`)
+- **JDK 21+** - requis par jdtls ; le bundle embarque le serveur, pas la JVM
 - **Node.js >= 18** - pour les LSP installés via npm
-- **Python 3 + pip** - pour les LSP/linters Python
+- **Python 3** - pour les outils Python
 
 ### NON requises en offline (déjà incluses dans ce package)
-- ~~tree-sitter CLI~~ - les parsers pré-compilés sont inclus
+- ~~tree-sitter CLI~~ et ~~compilateur C~~ - les parsers pré-compilés sont inclus
 - ~~cargo~~ - le binaire fuzzy de blink.cmp est inclus
+- ~~réseau~~ - lazy.nvim ne clone rien, les plugins sont posés tels quels
+- ~~jdtls, java-debug, java-test~~ - embarqués, faute d'être distribués en
+  paquet système ou en npm
 
 ### Formatters (optionnels, utilisés par conform.nvim)
 ```bash
@@ -318,11 +394,12 @@ rustup component add rust-analyzer
 ## Vérification de l'installation
 
 ```bash
-command -v nvim && echo "✓ Neovim OK"
+nvim --version | head -1          # doit afficher v0.12 ou plus
 command -v git && echo "✓ Git OK"
 command -v rg && echo "✓ Ripgrep OK"
 command -v fd && echo "✓ fd OK"
 command -v lazygit && echo "✓ lazygit OK (optionnel)"
+java -version 2>&1 | head -1      # 21+ requis par jdtls
 
 # Formatters
 command -v stylua && echo "✓ StyLua OK"
@@ -339,16 +416,13 @@ command -v typescript-language-server && echo "✓ TypeScript LSP OK"
 ## Notes importantes
 
 ### Treesitter
-✅ **Les parsers Treesitter sont inclus dans ce package !**
+✅ **Les parsers Treesitter sont inclus dans ce package** (branche `main` de
+nvim-treesitter). Liste exacte : `ls treesitter-parsers/`.
 
-Parsers pré-compilés (branche `main` de nvim-treesitter) : lua, vim, vimdoc,
-javascript, typescript, html, css, python, java, bash, json, yaml, toml, xml,
-markdown, markdown_inline, rust, svelte, vue, regex.
-
-⚠️ Ce sont des binaires **compilés pour l'architecture de la machine d'export** :
-la machine cible doit avoir la même architecture/OS. Sinon, supprimez
-`treesitter-parsers/` et laissez Neovim recompiler (requiert tree-sitter CLI
-et un compilateur C sur la cible).
+Ce sont des binaires **compilés pour la plateforme inscrite dans `PLATFORM`**.
+`install.sh` la vérifie et refuse une machine différente : sans réseau, la
+seule issue est de régénérer le bundle sur la bonne plateforme
+(`scripts/export-offline-linux.sh` dans le dépôt).
 DEPS_DOC
 
 # Créer le README
@@ -363,29 +437,44 @@ nécessaires pour une installation offline.
 - `config/` - Fichiers de configuration (init.lua, lazy-lock.json)
 - `plugins/` - Tous les plugins tels qu'installés (binaire blink.cmp inclus)
 - `treesitter-parsers/` - Parsers Treesitter pré-compilés (branche main)
-- `jdtls/` - Serveur LSP Java (absent si la machine d'export n'en avait pas)
+- `jdtls/`, `java-debug/`, `java-test/` - Chaîne Java (absents si la machine
+  d'export ne les avait pas)
+- `nvim-linux-*.tar.gz` - Runtime Neovim 0.12+ (si embarqué à l'export)
+- `PLATFORM` - Plateforme de build ; `install.sh` refuse une cible différente
 - `install.sh` - Script d'installation automatique
 - `DEPENDENCIES.md` - Liste complète des dépendances système
 
 ## Installation rapide
 
 1. **Transférez ce dossier** sur la machine cible (clé USB, réseau, etc.)
-   ⚠️ Même architecture/OS requis (binaires pré-compilés)
 
-2. **Installez les dépendances système** (voir DEPENDENCIES.md)
-   Minimum requis: Neovim >= 0.12, git, ripgrep
+   ⚠️ Le bundle contient des binaires natifs : il ne vaut que pour la
+   plateforme inscrite dans le fichier `PLATFORM`. `install.sh` compare et
+   refuse une machine différente plutôt que de laisser découvrir la panne à
+   l'usage. Pour une autre cible, régénérez le bundle avec
+   `scripts/export-offline-linux.sh` depuis le dépôt.
 
-3. **Lancez l'installation**:
+2. **Lancez l'installation**:
    ```bash
    cd nvim-config-offline
    chmod +x install.sh
    ./install.sh
    ```
 
-4. **Lancez Neovim**:
+   Rien n'est écrit hors de votre `$HOME` : ni droits root, ni gestionnaire de
+   paquets. Si un `nvim-linux-*.tar.gz` accompagne ce bundle, Neovim est
+   installé au passage dans `~/.local/share/neovim` (lié depuis
+   `~/.local/bin`) — vérifiez alors que `~/.local/bin` est dans votre `PATH`.
+
+3. **Lancez Neovim**:
    ```bash
    nvim
    ```
+
+4. **Complétez à votre rythme** (voir DEPENDENCIES.md) : ripgrep pour la
+   recherche, un JDK 21+ pour Java, les serveurs LSP et formatters. Rien de
+   tout cela n'est nécessaire au démarrage — l'éditeur, les plugins, la
+   coloration et la complétion fonctionnent dès l'étape 3.
 
 ## Structure de l'installation
 
@@ -401,8 +490,15 @@ nécessaires pour une installation offline.
   │   └── ...                # Autres plugins
   └── site/parser/           # Parsers Treesitter pré-compilés
 
+~/.local/share/neovim/       # Runtime Neovim (si embarqué dans le bundle)
+~/.local/bin/nvim            # → lien vers le runtime ci-dessus
 ~/.local/share/jdtls/        # Serveur LSP Java
+~/.local/share/java-debug/   # Adaptateur de debug Java (nvim-dap)
+~/.local/share/java-test/    # Lanceur de tests Java
 ```
+
+Rien en dehors de `$HOME` : l'installation ne demande pas de droits root et ne
+touche pas au gestionnaire de paquets du système.
 
 ## Fonctionnalités
 
@@ -435,31 +531,56 @@ nécessaires pour une installation offline.
 
 ## Dépannage
 
+### "Erreur: bundle construit pour X, machine Y"
+Le bundle vient d'une autre plateforme, ses binaires sont inutilisables ici.
+Régénérez-le depuis le dépôt avec `scripts/export-offline-linux.sh`. Pour
+installer quand même la partie portable (config + plugins Lua) et vous passer
+de Treesitter, du fuzzy blink et du runtime embarqué : `rm PLATFORM`.
+
+### "nvim: command not found" après l'installation
+Le runtime embarqué est lié depuis `~/.local/bin`, absent du `PATH` par défaut
+sur certaines distributions :
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
+```
+
 ### "lazy.nvim not found"
 ```bash
 ls ~/.local/share/nvim/lazy/lazy.nvim
 ```
 
 ### "rg command not found"
-```bash
-sudo apt install ripgrep  # Ubuntu/Debian
-brew install ripgrep      # macOS
-```
+Le picker (`<leader>g`) a besoin de ripgrep — voir DEPENDENCIES.md. Le reste de
+l'éditeur fonctionne sans.
 
 ### Pas de coloration syntaxique / erreurs treesitter
-Les parsers inclus sont compilés pour l'architecture de la machine d'export.
-Si la cible est différente : supprimez `~/.local/share/nvim/site/parser/`,
-installez le CLI tree-sitter, puis relancez Neovim (recompilation automatique).
+```bash
+ls ~/.local/share/nvim/site/parser/   # doit lister des .so
+nvim --headless -c 'checkhealth nvim-treesitter' -c 'qa'
+```
+Un dossier vide signifie que la machine d'export n'avait pas compilé ses
+parsers. Sans réseau, seul un nouveau bundle corrige cela.
 
 ### La complétion ne fonctionne pas
-Vérifiez le binaire blink.cmp :
+Vérifiez le binaire fuzzy de blink.cmp :
 ```bash
 ls ~/.local/share/nvim/lazy/blink.cmp/target/release/
 ```
-S'il est absent (architecture différente), il faut cargo pour recompiler.
+Absent, blink retombe sur son implémentation Lua : la complétion marche, le
+classement des résultats est simplement moins bon.
+
+### Java : rien ne démarre sur un fichier .java
+jdtls exige un JDK 21+ sur la machine (le bundle embarque le serveur, pas la
+JVM) :
+```bash
+java -version
+ls ~/.local/share/jdtls/plugins/org.eclipse.equinox.launcher_*.jar
+```
 
 ### Les LSP ne fonctionnent pas
-Installez les serveurs LSP nécessaires (voir DEPENDENCIES.md).
+Installez les serveurs LSP nécessaires (voir DEPENDENCIES.md). Ils ne sont pas
+embarqués : ce sont des paquets npm ordinaires, disponibles partout où un
+registre npm est joignable.
 
 ## Support
 
@@ -491,9 +612,15 @@ if [ -d "$TREESITTER_PARSER_DEST" ]; then
     PARSER_COUNT=$(ls -1 "$TREESITTER_PARSER_DEST"/*.so 2>/dev/null | wc -l | tr -d ' ')
     echo -e "  • ${GREEN}$PARSER_COUNT parsers Treesitter pré-compilés${NC}"
 fi
-if [ -d "$EXPORT_DIR/jdtls" ]; then
-    echo -e "  • ${GREEN}Serveur LSP Java (jdtls)${NC}"
+for java_component in jdtls java-debug java-test; do
+    if [ -d "$EXPORT_DIR/$java_component" ]; then
+        echo -e "  • ${GREEN}Java : $java_component${NC}"
+    fi
+done
+if ls "$EXPORT_DIR"/nvim-linux-*.tar.gz &>/dev/null; then
+    echo -e "  • ${GREEN}Runtime Neovim embarqué${NC}"
 fi
+echo -e "  • Plateforme cible : ${GREEN}$(cat "$EXPORT_DIR/PLATFORM")${NC}"
 echo -e "  • Script d'installation (install.sh)"
 echo -e "  • Documentation des dépendances (DEPENDENCIES.md)"
 echo -e "  • README"

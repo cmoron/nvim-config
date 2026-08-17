@@ -462,7 +462,9 @@ require("lazy").setup({
             require("nvim-treesitter").setup()
             -- Installation incrémentale : ne compile que les parsers manquants
             -- (nécessite le CLI tree-sitter : brew install tree-sitter)
-            require("nvim-treesitter").install({
+            -- Exposée en vim.g : l'export offline doit attendre la fin des
+            -- compilations, et dupliquer la liste la ferait dériver.
+            vim.g.ts_parsers = {
                 "lua",
                 "vim",
                 "vimdoc",
@@ -486,7 +488,8 @@ require("lazy").setup({
                 "svelte",
                 "vue",
                 "regex",
-            })
+            }
+            require("nvim-treesitter").install(vim.g.ts_parsers)
             -- Le highlight se lance au FileType (pas de module configs sur main)
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function()

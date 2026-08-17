@@ -156,16 +156,28 @@ Une config existante est sauvegardée en `~/.config/nvim.bak-<horodatage>`.
 ### Installation offline
 
 Le script `scripts/export-offline.sh` génère un bundle complet (plugins + binaire
-blink.cmp + parsers Treesitter pré-compilés + serveur Java jdtls) transférable sur
-une machine sans connexion :
+blink.cmp + parsers Treesitter pré-compilés + chaîne Java jdtls/debug/tests)
+transférable sur une machine sans connexion :
 
 ```bash
 scripts/export-offline.sh
 # → dist/nvim-config-offline.tar.gz
 ```
 
-⚠️ Les binaires sont compilés pour l'architecture de la machine d'export :
-la cible doit avoir la même architecture/OS. Voir le README du bundle généré.
+⚠️ Les binaires sont compilés pour l'architecture de la machine d'export. Le
+bundle enregistre sa plateforme dans `PLATFORM` et son `install.sh` refuse une
+cible différente.
+
+**Cible d'une autre plateforme** — `scripts/export-offline-linux.sh` rejoue
+l'export dans un conteneur Docker de la bonne architecture, et embarque en plus
+le runtime Neovim 0.12+ (extrait sous `~/.local`, donc installable sans droits
+root et sur un système à racine immuable) :
+
+```bash
+scripts/export-offline-linux.sh              # cible Linux x86_64
+ARCH=arm64 scripts/export-offline-linux.sh   # cible Linux aarch64
+# → dist/nvim-config-offline-linux-<arch>.tar.gz
+```
 
 ## Raccourcis - Vue d'ensemble complète
 
