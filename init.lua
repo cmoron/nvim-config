@@ -720,6 +720,29 @@ vim.api.nvim_create_autocmd("LspAttach", {
 -- Java (jdtls via nvim-jdtls)
 -- ============================
 
+-- Deux JVM à ne pas confondre : celle qui exécute jdtls, qui doit être en 21+,
+-- et celle que le projet cible. Sur un projet legacy le `java` du PATH est
+-- souvent celui du projet — un JDK 8 rejette --add-modules et --add-opens,
+-- introduites en 9, et le serveur sort en erreur. JDTLS_JAVA_HOME fige la JVM
+-- du serveur sans toucher à celle du projet.
+local jdtls_java = vim.env.JDTLS_JAVA_HOME and (vim.env.JDTLS_JAVA_HOME .. "/bin/java") or "java"
+
+-- Runtimes alternatifs : ils disent à jdtls avec quelles bibliothèques
+-- compiler, indépendamment de la JVM qui l'exécute. Sans JavaSE-1.8 déclaré,
+-- un projet 1.8 est analysé avec le JDK du serveur et voit disparaître les
+-- APIs retirées depuis (javax.xml.bind, sun.misc…).
+local java_runtimes = {}
+for _, runtime in ipairs({
+    { env = "JAVA8_HOME", name = "JavaSE-1.8" },
+    { env = "JAVA11_HOME", name = "JavaSE-11" },
+    { env = "JAVA17_HOME", name = "JavaSE-17" },
+    { env = "JAVA21_HOME", name = "JavaSE-21" },
+}) do
+    if vim.env[runtime.env] then
+        table.insert(java_runtimes, { name = runtime.name, path = vim.env[runtime.env] })
+    end
+end
+
 vim.api.nvim_create_autocmd("FileType", {
     pattern = "java",
     callback = function()
@@ -761,7 +784,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
         jdtls.start_or_attach({
             cmd = {
-                "java",
+                jdtls_java,
                 "-Declipse.application=org.eclipse.jdt.ls.core.id1",
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
@@ -774,7 +797,20 @@ vim.api.nvim_create_autocmd("FileType", {
                 "-configuration", config_dir,
                 "-data", workspace_dir,
             },
-            root_dir = jdtls.setup.find_root({ ".git", "mvnw", "gradlew", "pom.xml", "build.gradle" }),
+            -- build.xml, .project et .classpath couvrent les projets Ant et
+            -- Eclipse : sans eux, un projet legacy sans .git ne donne aucune
+            -- racine, donc aucun classpath, donc aucun test détecté. Ils sont
+            -- aussi plus proches du module que le .git d'un dépôt englobant.
+            root_dir = jdtls.setup.find_root({
+                "build.xml",
+                ".classpath",
+                ".project",
+                "pom.xml",
+                "build.gradle",
+                "mvnw",
+                "gradlew",
+                ".git",
+            }),
             capabilities = capabilities,
             -- Les jars s'enfichent dans jdtls : c'est le serveur lui-même qui
             -- expose ensuite l'adaptateur et le lanceur, pas un exécutable séparé.
@@ -794,8 +830,28 @@ vim.api.nvim_create_autocmd("FileType", {
                     saveActions = { organizeImports = true },
                     completion = { favoriteStaticMembers = {} },
                     sources = { organizeImports = { starThreshold = 9999, staticStarThreshold = 9999 } },
+                    configuration = { runtimes = java_runtimes },
                 },
             },
+            -- jdtls sort en erreur avec un message cryptique quand la JVM qui
+            -- le lance est trop ancienne : on nomme la cause plutôt que de
+            -- laisser fouiller lsp.log.
+            -- on_exit s'exécute en fast event context, où nvim_echo est
+            -- interdit : d'où le vim.schedule.
+            on_exit = function(code)
+                if code ~= 0 then
+                    vim.schedule(function()
+                        vim.notify(
+                            "jdtls a quitté (code "
+                                .. tostring(code)
+                                .. "). Vérifiez que `"
+                                .. jdtls_java
+                                .. "` est un JDK 21+ ; sinon renseignez JDTLS_JAVA_HOME.",
+                            vim.log.levels.ERROR
+                        )
+                    end)
+                end
+            end,
         })
 
         -- Lancer les tests. Buffer-local, contrairement aux touches de debug :
