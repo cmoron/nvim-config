@@ -316,41 +316,84 @@ Tapez `<leader>` et attendez 500ms → popup des raccourcis disponibles :
 
 ### Core
 
-- **lazy.nvim** - Gestionnaire de plugins
-- **gruvbox.nvim** (ellisonleao) - Colorscheme (port Lua, groupes treesitter/floats)
+- **lazy.nvim** — Gestionnaire de plugins : bootstrap automatique au premier
+  lancement, versions figées par `lazy-lock.json`, chargement paresseux
+  (`event`, `ft`, `keys`) pour un démarrage rapide.
+- **gruvbox.nvim** (ellisonleao) — Colorscheme. Port Lua qui définit
+  `NormalFloat` et les groupes treesitter, contrairement au gruvbox historique
+  qui laissait un fond noir sur les fenêtres flottantes.
 
 ### Navigation et Fichiers
 
-- **snacks.nvim** - Picker (fuzzy finder), explorer, indent guides, lazygit
-- **leap.nvim** - Navigation rapide par 2 caractères
-- **bufferline** - Onglets de buffers
+- **snacks.nvim** — Couteau suisse qui remplace à lui seul Telescope, NvimTree
+  et BufExplorer. Modules activés : **picker** (fichiers `Ctrl-P`, grep
+  `<leader>g`, buffers, aide, diagnostics, références et symboles LSP),
+  **explorer** (`F9`, révélation du fichier courant `<leader><Tab>`),
+  **indent** (guides d'indentation) et **lazygit** (`<leader>lg`).
+- **leap.nvim** — Saut vers n'importe quel point visible en tapant 2 caractères
+  puis un label (`s` dans la fenêtre courante, `S` vers une autre fenêtre).
+  Installé depuis son miroir Codeberg.
+- **bufferline.nvim** — Onglets de buffers en haut de l'écran (`Tab` /
+  `Shift-Tab` pour naviguer), avec un décalage réservé à l'explorer.
 
 ### UI
 
-- **lualine** - Barre de statut
-- **which-key** - Affiche les raccourcis disponibles
-- **tiny-inline-diagnostic** - Diagnostics inline discrets
-- **nvim-colorizer** (fork NvChad) - Couleurs CSS
+- **lualine** — Barre de statut (thème gruvbox) : mode, branche Git,
+  diagnostics, position.
+- **which-key** — Popup des raccourcis disponibles après `<leader>` (500 ms),
+  avec les groupes Find/Format, Comment et LazyGit.
+- **tiny-inline-diagnostic** — Diagnostics affichés en fin de ligne du curseur
+  uniquement (preset « ghost », multi-lignes) : pas de virtual text permanent
+  qui pollue tout l'écran.
+- **nvim-colorizer** (fork NvChad) — Prévisualisation des couleurs dans le
+  buffer (`#RRGGBB`, `rgb()`, `hsl()`, noms CSS), tous filetypes.
+- **nvim-web-devicons** — Icônes de filetypes (dépendance de bufferline et
+  lualine, nécessite une Nerd Font).
 
 ### Git
 
-- **gitsigns** - Indicateurs Git dans la marge
-- **vim-fugitive** - Intégration Git complète
+- **gitsigns** — Hunks dans la gouttière (`+`, `~`, `_`) sur l'état du working
+  tree.
+- **vim-fugitive** — Git en mode commande : `:Git status`, `:Git blame`,
+  `:Gdiffsplit`, `:Git push`…
+- **lazygit** (via snacks.nvim) — Interface Git complète en fenêtre flottante
+  (`<leader>lg`). Nécessite le binaire `lazygit` sur la machine.
 
 ### Édition
 
-- **nvim-autopairs** - Fermeture automatique des paires
-- **conform.nvim** - Formatage (stylua, ruff, prettier, xmllint)
+- **nvim-autopairs** — Fermeture automatique des parenthèses, quotes et
+  crochets ; l'insertion des parenthèses à l'acceptation d'une complétion est
+  gérée par blink.cmp (`auto_brackets`).
+- **conform.nvim** — Formatage à la demande (`<leader>f`, jamais à la
+  sauvegarde) : stylua, ruff, prettier, xmllint, goimports selon le filetype,
+  trim des espaces partout, et délégation au serveur LSP pour les langages
+  sans formatter dédié.
 
-### LSP et Complétion
+### LSP, Complétion et Debug
 
-- **blink.cmp** - Moteur de complétion (snippets intégrés via friendly-snippets)
-- **nvim-lspconfig** - Configurations des serveurs LSP
-- **nvim-jdtls** - LSP Java
+- **blink.cmp** — Moteur de complétion (LSP, chemins, snippets, mots du
+  buffer) avec documentation intégrée. Le matching flou repose sur un binaire
+  Rust précompilé — pas de dépendance à cargo, et le bundle offline
+  l'embarque.
+- **friendly-snippets** — Collection de snippets communautaires consommée par
+  blink.cmp.
+- **nvim-lspconfig** — Définitions des serveurs LSP, activés via l'API native
+  `vim.lsp.enable()` (voir la section « Serveurs LSP »).
+- **nvim-jdtls** — Intégration Java : chargé uniquement sur `ft=java`, gère le
+  workspace jdtls, la détection de racine de projet (Maven, Gradle, Ant), la
+  JVM du serveur (`JDTLS_JAVA_HOME`) séparée de celle du projet, et branche
+  java-debug / vscode-java-test sur nvim-dap.
+- **nvim-dap** + **nvim-dap-ui** (+ **nvim-nio**) — Débogueur : breakpoints
+  (`<leader>db`, conditionnel `<leader>dB`), exécution `F5` / `F10` / `F11`,
+  panneaux ouverts automatiquement au premier arrêt réel — un test qui passe
+  ne fait pas clignoter l'écran.
 
 ### Syntaxe
 
-- **nvim-treesitter** (branche `main`) - Coloration syntaxique
+- **nvim-treesitter** (branche `main`) — Coloration et analyse syntaxiques.
+  La liste des parsers (22 langages) est exposée dans `vim.g.ts_parsers`,
+  compilée au premier lancement (CLI `tree-sitter` + compilateur C) et
+  précompilée dans le bundle offline.
 
 ## Désactivation temporaire
 
