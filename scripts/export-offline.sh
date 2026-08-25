@@ -266,6 +266,24 @@ else
     echo -e "  (nécessite le CLI tree-sitter et un compilateur C)."
 fi
 
+# nvim-treesitter (branche main) lit ses queries dans site/queries/<lang>, des
+# liens vers runtime/queries/<lang> du plugin. C'est install() qui les pose,
+# mais il télécharge le parser d'abord : hors ligne il échoue avant d'y arriver.
+# Sans ces liens le parser s'attache sans aucune query — vim.treesitter.start()
+# réussit, et le tampon reste sans la moindre couleur, dans tous les langages.
+TS_QUERY_SRC="$LAZY_DIR/nvim-treesitter/runtime/queries"
+if [ -d "$TS_QUERY_SRC" ]; then
+    SITE_QUERY_DIR="$NVIM_DATA_DIR/site/queries"
+    mkdir -p "$SITE_QUERY_DIR"
+    for query_src in "$TS_QUERY_SRC"/*/; do
+        ln -sfn "${query_src%/}" "$SITE_QUERY_DIR/$(basename "$query_src")"
+    done
+    QUERY_COUNT=$(ls -1 "$SITE_QUERY_DIR" 2>/dev/null | wc -l | tr -d ' ')
+    echo -e "${GREEN}✓${NC} $QUERY_COUNT jeux de queries Treesitter liés"
+else
+    echo -e "${YELLOW}⚠${NC} Queries Treesitter absentes : la coloration restera vide."
+fi
+
 echo -e "\n${GREEN}[4/5]${NC} Installation de la chaîne Java..."
 for java_component in jdtls java-debug java-test; do
     if [ -d "$java_component" ]; then
