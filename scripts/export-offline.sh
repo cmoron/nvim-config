@@ -71,6 +71,11 @@ echo -e "${GREEN}✓${NC} $PLUGIN_COUNT plugins copiés"
 # Nettoyer les dossiers .git pour économiser de l'espace
 find "$PLUGINS_DIR" -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
 
+# Dossiers de CI des plugins : jamais lus par Neovim, et nvim-jdtls y cache un
+# lien symbolique relatif (.github/linters/.luacheckrc) qui fait échouer le
+# détar sur un système de fichiers sans symlinks — clé USB exFAT, partage CIFS.
+find "$PLUGINS_DIR" -maxdepth 2 -name ".github" -type d -exec rm -rf {} + 2>/dev/null || true
+
 # Élaguer les parsers hérités de la branche master : treesitter main lit
 # site/parser (exporté à l'étape suivante), jamais ce dossier.
 rm -rf "$PLUGINS_DIR/nvim-treesitter/parser"
