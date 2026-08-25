@@ -244,6 +244,11 @@ mkdir -p "$LAZY_DIR"
 for plugin_dir in plugins/*; do
     if [ -d "$plugin_dir" ]; then
         echo -e "${BLUE}→${NC} $(basename "$plugin_dir")"
+        # cp -r fusionne au lieu de remplacer : sans ce rm, les fichiers d'un
+        # déploiement précédent survivent. blink.cmp y laissait son `version`,
+        # qui lui fait croire à un binaire téléchargé, désactive le chemin
+        # « binaire posé à la main » et redonne « No fuzzy matching library ».
+        rm -rf "${LAZY_DIR:?}/$(basename "$plugin_dir")"
         cp -r "$plugin_dir" "$LAZY_DIR/"
     fi
 done
