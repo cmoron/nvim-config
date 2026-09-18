@@ -343,10 +343,11 @@
     <h2>Avant d'ouvrir</h2>
     <pre><code>cd ~/src/tsp-solver &amp;&amp; nvim src/main/java/com/tsp/Main.java</code></pre>
     <p class="standfirst">
-      Le <code>cd</code> n'est pas cosmétique : <code>init.lua:642</code> nomme
-      le workspace jdtls d'après <code>getcwd()</code>. Lancer nvim depuis
-      ailleurs mélange les workspaces entre projets. <code>java</code> doit être
-      dans le <code>PATH</code> — c'est ton <code>.zshrc</code> qui s'en charge.
+      Le workspace jdtls est dérivé de la racine détectée du projet ;
+      sans racine reconnue, le dossier courant sert de repli. Deux projets de
+      même nom peuvent encore partager un workspace. Utilise un JDK compatible
+      dans le <code>PATH</code> ou définis <code>JDTLS_JAVA_HOME</code> pour
+      séparer la JVM du serveur de celle du projet.
     </p>
   </section>
 
@@ -718,8 +719,9 @@
           lignes. Le hover, c'est <kbd>H</kbd>.
         </li>
         <li>
-          Lancer nvim ailleurs que depuis la racine du projet donne un workspace
-          jdtls mal nommé.
+          Deux projets homonymes peuvent partager le workspace jdtls ;
+          la détection actuelle retient le marqueur de projet le plus proche,
+          pas nécessairement la racine du réacteur Maven.
         </li>
         <li>
           jdtls met 2 à 3 secondes à s'attacher au premier fichier Java : les

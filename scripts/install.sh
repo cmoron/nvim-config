@@ -38,7 +38,7 @@ Déploie la configuration Neovim de ce dépôt et installe ses dépendances
 (serveurs LSP, formatters, plugins aux versions de lazy-lock.json).
 
 Le serveur Java jdtls est installé depuis download.eclipse.org, à sa dernière
-version publiée, uniquement si un JDK 21+ est présent. L'adaptateur de debug et
+version épinglée, uniquement si un JDK 25+ est présent. L'adaptateur de debug et
 le lanceur de tests Java suivent, extraits des extensions VS Code (seul canal
 de distribution publié pour ces deux jars).
 
@@ -159,8 +159,7 @@ install_vscode_jars() {
 
 pkg_install() {
     if has bun; then run bun install -g "$@"
-    elif has npm; then run npm install -g "$@"
-    else fail "Ni bun ni npm — impossible d'installer $*"; return 1; fi
+    else warn "bun absent — impossible d'installer $*"; return 1; fi
 }
 
 echo -e "${BOLD}Configuration Neovim${NC} ${DIM}— $REPO_DIR${NC}"
@@ -174,9 +173,9 @@ MISSING=""   # chaîne et non tableau : bash 3.2 + set -u
 
 if has nvim; then
     NVIM_VER=$(nvim --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
-    if (( $(echo "$NVIM_VER" | cut -d. -f1) == 0 && $(echo "$NVIM_VER" | cut -d. -f2) < 11 )); then
-        fail "Neovim $NVIM_VER — version 0.11+ requise"
-        MISSING="$MISSING neovim>=0.11"
+    if (( $(echo "$NVIM_VER" | cut -d. -f1) == 0 && $(echo "$NVIM_VER" | cut -d. -f2) < 12 )); then
+        fail "Neovim $NVIM_VER — version 0.12+ requise"
+        MISSING="$MISSING neovim>=0.12"
     else
         ok "Neovim $NVIM_VER"
     fi
@@ -187,23 +186,25 @@ fi
 if has git; then ok "git"; else fail "git non installé"; MISSING="$MISSING git"; fi
 if has rg; then ok "ripgrep"; else fail "ripgrep non installé"; MISSING="$MISSING ripgrep"; fi
 
-# nvim-treesitter branche main compile via `tree-sitter build`, sous-commande
-# absente avant 0.25 (dont la version packagée par apt). On teste la capacité,
-# pas le numéro de version.
+# Plancher déclaré par le commit nvim-treesitter de lazy-lock.json.
+TS_VERSION=$(tree-sitter --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
 if ! has tree-sitter; then
     fail "tree-sitter absent — les parsers ne pourront pas être compilés"
     MISSING="$MISSING tree-sitter-cli"
-elif ! tree-sitter build --help &>/dev/null; then
-    fail "tree-sitter $(tree-sitter --version | grep -oE '[0-9]+(\.[0-9]+)*' | head -1) trop ancien (pas de sous-commande 'build')"
+elif [[ ! "$TS_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] \
+    || (( BASH_REMATCH[1] == 0 && (BASH_REMATCH[2] < 26 || (BASH_REMATCH[2] == 26 && BASH_REMATCH[3] < 1)) )) \
+    || ! tree-sitter build --help &>/dev/null; then
+    fail "tree-sitter ${TS_VERSION:-inconnu} incompatible (0.26.1+ avec 'build' requis)"
     info "→ cargo install tree-sitter-cli, ou le binaire des releases GitHub"
-    MISSING="$MISSING tree-sitter-cli>=0.25"
+    MISSING="$MISSING tree-sitter-cli>=0.26.1"
 else
     ok "tree-sitter $(tree-sitter --version | grep -oE '[0-9]+(\.[0-9]+)*' | head -1)"
 fi
 
 if has bun; then ok "bun $(bun --version)"
-elif has node; then ok "node $(node --version)"
-else fail "Ni bun ni node — requis pour les LSP JS/TS"; MISSING="$MISSING bun|nodejs"; fi
+else fail "bun absent — requis pour installer les outils JS"; MISSING="$MISSING bun"; fi
+if has node; then ok "Node présent (lanceurs des outils JS)"
+else fail "Node absent — requis par les lanceurs des outils JS"; MISSING="$MISSING nodejs"; fi
 
 if has python3; then ok "python3"; else warn "python3 absent — LSP Python non fonctionnel"; fi
 
@@ -211,9 +212,9 @@ if [ -n "$MISSING" ]; then
     echo ""
     info "Paquets système manquants :$MISSING"
     case "$PM" in
-        apt)    info "  sudo apt install neovim git ripgrep nodejs npm" ;;
-        dnf)    info "  sudo dnf install neovim git ripgrep nodejs npm" ;;
-        pacman) info "  sudo pacman -S neovim git ripgrep nodejs npm" ;;
+        apt)    info "  sudo apt install git ripgrep nodejs ; installer Neovim 0.12+ et tree-sitter 0.26.1+ séparément" ;;
+        dnf)    info "  sudo dnf install git ripgrep nodejs ; installer Neovim 0.12+ et tree-sitter 0.26.1+ séparément" ;;
+        pacman) info "  sudo pacman -S neovim git ripgrep nodejs tree-sitter" ;;
         brew)   info "  brew install neovim git ripgrep node" ;;
         *)      info "  à installer manuellement" ;;
     esac
@@ -304,22 +305,24 @@ else
     for cmd in $ABSENT; do   # non quoté : découpage voulu
         case "$cmd" in
             pyright|bash-language-server|prettier)
-                pkg_install "$cmd" && installed "$cmd" || warn "échec : $cmd" ;;
+                if pkg_install "$cmd"; then installed "$cmd"; else warn "échec : $cmd"; fi ;;
             typescript-language-server)
-                pkg_install typescript typescript-language-server && installed "$cmd" || warn "échec : $cmd" ;;
+                if pkg_install typescript typescript-language-server; then installed "$cmd"; else warn "échec : $cmd"; fi ;;
             svelteserver)
-                pkg_install svelte-language-server && installed "$cmd" || warn "échec : $cmd" ;;
+                if pkg_install svelte-language-server; then installed "$cmd"; else warn "échec : $cmd"; fi ;;
             ruff)
-                if has uv; then run uv tool install ruff && installed "ruff" || warn "échec : ruff"
-                elif has pip3; then run pip3 install --user ruff && installed "ruff" || warn "échec : ruff"
-                else warn "ruff : ni uv ni pip3 — à installer manuellement"; fi ;;
+                if has uv; then
+                    if run uv tool install ruff; then installed "ruff"; else warn "échec : ruff"; fi
+                else warn "ruff : uv absent — à installer manuellement"; fi ;;
             stylua)
-                if has cargo; then run cargo install stylua && installed "stylua" || warn "échec : stylua"
+                if has cargo; then
+                    if run cargo install stylua; then installed "stylua"; else warn "échec : stylua"; fi
                 else warn "stylua : cargo absent — cargo install stylua"; fi ;;
             rust-analyzer)
                 warn "rust-analyzer : rustup component add rust-analyzer" ;;
             gopls)
-                if has go; then run go install golang.org/x/tools/gopls@latest && installed "gopls" || warn "échec : gopls"
+                if has go; then
+                    if run go install golang.org/x/tools/gopls@latest; then installed "gopls"; else warn "échec : gopls"; fi
                 else warn "gopls : go absent — https://go.dev/dl/"; fi ;;
             xmllint)
                 case "$PM" in
@@ -338,10 +341,10 @@ step "[3/4] Serveur Java (jdtls + debug + tests)"
 # =============================================================================
 
 # jdtls n'est pas distribué par un gestionnaire de paquets : on le tire du
-# site Eclipse. Choix assumé de suivre la dernière version publiée plutôt que
-# d'épingler — contrairement aux plugins, verrouillés par lazy-lock.json.
+# site Eclipse. Épingler la release qualifiée avec le JDK 25 : un snapshot
+# peut relever le plancher Java via une dépendance Eclipse transitive.
 JDTLS_DIR="$HOME/.local/share/jdtls"
-JDTLS_BASE="https://download.eclipse.org/jdtls/snapshots"
+JDTLS_BASE="https://download.eclipse.org/jdtls/milestones/1.61.0"
 JDTLS_STAMP="$JDTLS_DIR/.installed-from"
 
 JDEBUG_DIR="$HOME/.local/share/java-debug"
@@ -351,21 +354,20 @@ JTEST_DIR="$HOME/.local/share/java-test"
 # la commande ne prouve rien, seule sa sortie compte. Le `|| true` est vital,
 # sinon pipefail fait sortir le script sur ce stub.
 # `openjdk version "25.0.2"` → 25 ; `"1.8.0_..."` → 1, donc rejeté plus bas.
-JAVA_MAJOR=$(java -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/' || true)
+JAVA_CMD="${JDTLS_JAVA_HOME:+$JDTLS_JAVA_HOME/bin/}java"
+JAVA_MAJOR=$("$JAVA_CMD" -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/' || true)
 # Si le motif ne matche pas, sed renvoie la ligne entière : on neutralise.
 case "$JAVA_MAJOR" in ''|*[!0-9]*) JAVA_MAJOR=0 ;; esac
 
 if (( JAVA_MAJOR == 0 )); then
     warn "aucun JDK utilisable détecté — jdtls non installé (49 Mo épargnés)"
-    info "→ relancer ce script après avoir installé un JDK 21+"
-elif (( JAVA_MAJOR < 21 )); then
-    warn "JDK trop ancien pour jdtls (21+ requis)"
-    info "→ un JDK 21+ peut coexister avec celui-ci"
+    info "→ relancer ce script après avoir installé un JDK 25+"
+elif (( JAVA_MAJOR < 25 )); then
+    warn "JDK trop ancien pour jdtls (25+ requis)"
+    info "→ un JDK 25+ peut coexister avec celui-ci"
 else
-    JDTLS_LATEST=$(curl -fsSL "$JDTLS_BASE/latest.txt" 2>/dev/null || true)
-    if [ -z "$JDTLS_LATEST" ]; then
-        warn "download.eclipse.org injoignable — jdtls laissé en l'état"
-    elif [ -f "$JDTLS_STAMP" ] && [ "$(cat "$JDTLS_STAMP")" = "$JDTLS_LATEST" ]; then
+    JDTLS_LATEST="jdt-language-server-1.61.0-202609031315.tar.gz"
+    if [ -f "$JDTLS_STAMP" ] && [ "$(cat "$JDTLS_STAMP")" = "$JDTLS_LATEST" ]; then
         ok "jdtls à jour ($(echo "$JDTLS_LATEST" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1))"
     elif $DRY_RUN; then
         info "[dry-run] installerait $JDTLS_LATEST (~49 Mo) → $JDTLS_DIR"
@@ -400,7 +402,7 @@ else
 fi
 
 # =============================================================================
-step "[4/4] Plugins et parsers Treesitter"
+step "[4/4] Plugins"
 # =============================================================================
 
 if $DRY_RUN; then
@@ -448,5 +450,8 @@ cat <<EOF
     :checkhealth     état général
     :Lazy            plugins
     :ConformInfo     formatters
+
+  Les parsers Treesitter sont installés au premier lancement avec interface.
+  Le build offline les compile explicitement et attend leur installation.
 
 EOF

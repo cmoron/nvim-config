@@ -2,10 +2,10 @@
 # ============================================================================
 # Script d'export de la configuration Neovim pour installation offline
 #
-# Stratégie : copier les plugins TELS QU'INSTALLÉS localement
+# Stratégie : copier les plugins verrouillés et installés localement
 # (~/.local/share/nvim/lazy/) plutôt que de re-cloner une liste en dur.
 # Avantages :
-#   - pas de liste de plugins à maintenir (elle dérivait à chaque migration)
+#   - lazy-lock.json est la seule liste de plugins à maintenir
 #   - le binaire fuzzy précompilé de blink.cmp est inclus
 #   - les branches pinées (nvim-treesitter main) sont respectées
 # Les parsers treesitter (branche main) sont copiés depuis
@@ -13,7 +13,7 @@
 # avoir la même architecture/OS).
 # ============================================================================
 
-set -e  # Arrêter en cas d'erreur
+set -euo pipefail
 
 # Couleurs pour l'affichage
 GREEN='\033[0;32m'
@@ -43,6 +43,24 @@ if [ ! -d "$LAZY_DIR" ]; then
     exit 1
 fi
 
+# Valider avant d'effacer un export précédent. Python ne sert qu'à lire le JSON.
+PLUGIN_LOCK=$(python3 - "$REPO_DIR/lazy-lock.json" <<'PY'
+import json, re, sys
+for name, entry in json.load(open(sys.argv[1])).items():
+    if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", name) or not re.fullmatch(r"[0-9a-f]{40}", entry["commit"]):
+        sys.exit("Entrée de lockfile invalide : " + name)
+    print(name, entry["commit"])
+PY
+)
+while read -r plugin revision; do
+    if [ ! -d "$LAZY_DIR/$plugin/.git" ] \
+        || [ "$(git -C "$LAZY_DIR/$plugin" rev-parse HEAD)" != "$revision" ] \
+        || [ -n "$(git -C "$LAZY_DIR/$plugin" status --porcelain --untracked-files=no)" ]; then
+        echo "Erreur: $plugin absent, modifié ou différent du lockfile ; exécutez :Lazy restore avant l'export." >&2
+        exit 1
+    fi
+done <<< "$PLUGIN_LOCK"
+
 # Créer le dossier d'export
 echo -e "${GREEN}[1/6]${NC} Création de la structure d'export..."
 rm -rf "$EXPORT_DIR"
@@ -64,17 +82,23 @@ fi
 
 # Copier les plugins tels qu'installés (inclut le binaire précompilé de blink.cmp)
 echo -e "\n${GREEN}[3/6]${NC} Copie des plugins installés..."
-cp -R "$LAZY_DIR/." "$PLUGINS_DIR/"
-PLUGIN_COUNT=$(ls -1 "$PLUGINS_DIR" | wc -l | tr -d ' ')
+while read -r plugin revision; do
+    cp -R "$LAZY_DIR/$plugin" "$PLUGINS_DIR/"
+done <<< "$PLUGIN_LOCK"
+PLUGIN_COUNT=$(find "$PLUGINS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
 echo -e "${GREEN}✓${NC} $PLUGIN_COUNT plugins copiés"
 
 # Nettoyer les dossiers .git pour économiser de l'espace
-find "$PLUGINS_DIR" -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$PLUGINS_DIR" -name ".git" -type d -prune -exec rm -rf {} +
 
 # Dossiers de CI des plugins : jamais lus par Neovim, et nvim-jdtls y cache un
 # lien symbolique relatif (.github/linters/.luacheckrc) qui fait échouer le
 # détar sur un système de fichiers sans symlinks — clé USB exFAT, partage CIFS.
-find "$PLUGINS_DIR" -maxdepth 2 -name ".github" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$PLUGINS_DIR" -maxdepth 2 -name ".github" -type d -prune -exec rm -rf {} +
+
+# Fixtures de développement (notamment les médias Snacks), inutiles au runtime.
+find "$PLUGINS_DIR" -mindepth 2 -maxdepth 2 -type d \
+    \( -name tests -o -name test \) -prune -exec rm -rf {} +
 
 # Élaguer les parsers hérités de la branche master : treesitter main lit
 # site/parser (exporté à l'étape suivante), jamais ce dossier.
@@ -91,10 +115,10 @@ rm -f "$PLUGINS_DIR"/blink.cmp/target/release/version \
 # Copier les parsers Treesitter pré-compilés (branche main : site/parser)
 echo -e "\n${GREEN}[4/6]${NC} Copie des parsers Treesitter..."
 TREESITTER_PARSER_DEST="$EXPORT_DIR/treesitter-parsers"
-if [ -d "$PARSER_DIR" ]; then
+if compgen -G "$PARSER_DIR/*.so" >/dev/null; then
     mkdir -p "$TREESITTER_PARSER_DEST"
     cp "$PARSER_DIR"/*.so "$TREESITTER_PARSER_DEST/"
-    PARSER_COUNT=$(ls -1 "$TREESITTER_PARSER_DEST"/*.so 2>/dev/null | wc -l | tr -d ' ')
+    PARSER_COUNT=$(find "$TREESITTER_PARSER_DEST" -name '*.so' -type f | wc -l | tr -d ' ')
     echo -e "${GREEN}✓${NC} $PARSER_COUNT parsers copiés"
 else
     echo -e "${YELLOW}⚠${NC} Parsers Treesitter non trouvés dans $PARSER_DIR."
@@ -129,499 +153,129 @@ fi
 
 # Créer le script d'installation
 echo -e "\n${GREEN}Création du script d'installation...${NC}"
-cat > "$EXPORT_DIR/install.sh" << 'INSTALL_SCRIPT'
-#!/usr/bin/env bash
-# ============================================================================
-# Script d'installation de la configuration Neovim (offline)
-# ============================================================================
-
-set -e
-
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Installation Neovim (offline)${NC}"
-echo -e "${BLUE}========================================${NC}\n"
-
-# Le bundle transporte des binaires natifs (parsers Treesitter, fuzzy blink,
-# runtime nvim). Les poser sur une autre plateforme produit des pannes
-# obscures à l'usage : mieux vaut refuser ici.
-if [ -f PLATFORM ]; then
-    BUNDLE_PLATFORM=$(cat PLATFORM)
-    HOST_PLATFORM="$(uname -s) $(uname -m)"
-    if [ "$BUNDLE_PLATFORM" != "$HOST_PLATFORM" ]; then
-        echo -e "${RED}Erreur: bundle construit pour '$BUNDLE_PLATFORM', machine '$HOST_PLATFORM'${NC}"
-        echo -e "Régénérez le bundle sur la bonne plateforme (scripts/export-offline-linux.sh)."
-        echo -e "${YELLOW}Pour passer outre malgré tout: rm PLATFORM${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✓${NC} Plateforme: $HOST_PLATFORM"
-fi
-
-# Chemins
-NVIM_CONFIG_DIR="$HOME/.config/nvim"
-NVIM_DATA_DIR="$HOME/.local/share/nvim"
-LAZY_DIR="$NVIM_DATA_DIR/lazy"
-
-nvim_major_minor() {
-    nvim --version 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+' | head -1
-}
-
-# Runtime Neovim embarqué : extrait sous ~/.local/share, exposé via
-# ~/.local/bin. Aucune écriture hors du HOME, donc utilisable sans droits root,
-# y compris sur un système à racine immuable.
-NVIM_ARCHIVE=$(ls nvim-linux-*.tar.gz 2>/dev/null | head -1 || true)
-NVIM_VERSION=$(nvim_major_minor || echo "0.0")
-NVIM_MINOR=$(echo "${NVIM_VERSION:-0.0}" | cut -d. -f2)
-
-if [ -n "$NVIM_ARCHIVE" ] && { ! command -v nvim &> /dev/null || [ "${NVIM_MINOR:-0}" -lt 12 ]; }; then
-    echo -e "${BLUE}→${NC} Installation du runtime Neovim embarqué ($NVIM_ARCHIVE)..."
-    rm -rf "$HOME/.local/share/neovim"
-    mkdir -p "$HOME/.local/share/neovim" "$HOME/.local/bin"
-    # --strip-components : l'archive officielle a un dossier racine versionné.
-    tar -xzf "$NVIM_ARCHIVE" -C "$HOME/.local/share/neovim" --strip-components=1
-    ln -sf "$HOME/.local/share/neovim/bin/nvim" "$HOME/.local/bin/nvim"
-    export PATH="$HOME/.local/bin:$PATH"
-    echo -e "${GREEN}✓${NC} Neovim installé dans ~/.local/share/neovim"
-    case ":$PATH:" in
-        *":$HOME/.local/bin:"*) ;;
-        *) echo -e "${YELLOW}⚠${NC} Ajoutez ~/.local/bin à votre PATH" ;;
-    esac
-fi
-
-if ! command -v nvim &> /dev/null; then
-    echo -e "${RED}Erreur: Neovim n'est pas installé${NC}"
-    echo -e "Installez Neovim >= 0.12 avant de continuer"
-    exit 1
-fi
-
-NVIM_VERSION=$(nvim_major_minor || echo "0.0")
-echo -e "${BLUE}→${NC} Neovim version: $NVIM_VERSION"
-if [ "$(echo "$NVIM_VERSION" | cut -d. -f2)" -lt 12 ]; then
-    echo -e "${YELLOW}Attention:${NC} cette configuration requiert Neovim >= 0.12"
-    echo -e "(nvim-treesitter branche main refuse de démarrer en dessous)"
-fi
-
-# Demander confirmation si la config existe déjà
-if [ -d "$NVIM_CONFIG_DIR" ] || [ -d "$LAZY_DIR" ]; then
-    echo -e "\n${YELLOW}Attention:${NC} Une configuration Neovim existe déjà"
-    echo -e "Config: $NVIM_CONFIG_DIR"
-    echo -e "Plugins: $LAZY_DIR"
-    echo -e "\n${YELLOW}Voulez-vous créer une sauvegarde? (o/N)${NC}"
-    read -r response
-
-    if [[ "$response" =~ ^[OoYy]$ ]]; then
-        BACKUP_DIR="$HOME/nvim-backup-$(date +%Y%m%d-%H%M%S)"
-        echo -e "${BLUE}→${NC} Sauvegarde dans: $BACKUP_DIR"
-        mkdir -p "$BACKUP_DIR"
-
-        if [ -d "$NVIM_CONFIG_DIR" ]; then
-            cp -r "$NVIM_CONFIG_DIR" "$BACKUP_DIR/config"
-        fi
-        if [ -d "$LAZY_DIR" ]; then
-            cp -r "$LAZY_DIR" "$BACKUP_DIR/lazy"
-        fi
-
-        echo -e "${GREEN}✓${NC} Sauvegarde créée"
-    fi
-fi
-
-# Installation
-echo -e "\n${GREEN}[1/5]${NC} Installation de la configuration..."
-mkdir -p "$NVIM_CONFIG_DIR"
-cp config/init.lua "$NVIM_CONFIG_DIR/"
-if [ -f "config/lazy-lock.json" ]; then
-    cp config/lazy-lock.json "$NVIM_CONFIG_DIR/"
-fi
-echo -e "${GREEN}✓${NC} Configuration copiée"
-
-echo -e "\n${GREEN}[2/5]${NC} Installation des plugins (dont lazy.nvim)..."
-mkdir -p "$LAZY_DIR"
-for plugin_dir in plugins/*; do
-    if [ -d "$plugin_dir" ]; then
-        echo -e "${BLUE}→${NC} $(basename "$plugin_dir")"
-        # cp -r fusionne au lieu de remplacer : sans ce rm, les fichiers d'un
-        # déploiement précédent survivent. blink.cmp y laissait son `version`,
-        # qui lui fait croire à un binaire téléchargé, désactive le chemin
-        # « binaire posé à la main » et redonne « No fuzzy matching library ».
-        rm -rf "${LAZY_DIR:?}/$(basename "$plugin_dir")"
-        cp -r "$plugin_dir" "$LAZY_DIR/"
-    fi
-done
-echo -e "${GREEN}✓${NC} Plugins installés"
-
-echo -e "\n${GREEN}[3/5]${NC} Installation des parsers Treesitter (branche main)..."
-if [ -d "treesitter-parsers" ]; then
-    SITE_PARSER_DIR="$NVIM_DATA_DIR/site/parser"
-    mkdir -p "$SITE_PARSER_DIR"
-    cp treesitter-parsers/*.so "$SITE_PARSER_DIR/"
-    PARSER_COUNT=$(ls -1 "$SITE_PARSER_DIR"/*.so 2>/dev/null | wc -l | tr -d ' ')
-    echo -e "${GREEN}✓${NC} $PARSER_COUNT parsers Treesitter installés (offline)"
-else
-    echo -e "${YELLOW}⚠${NC} Pas de parsers inclus. Ils seront compilés au premier lancement"
-    echo -e "  (nécessite le CLI tree-sitter et un compilateur C)."
-fi
-
-# nvim-treesitter (branche main) lit ses queries dans site/queries/<lang>, des
-# liens vers runtime/queries/<lang> du plugin. C'est install() qui les pose,
-# mais il télécharge le parser d'abord : hors ligne il échoue avant d'y arriver.
-# Sans ces liens le parser s'attache sans aucune query — vim.treesitter.start()
-# réussit, et le tampon reste sans la moindre couleur, dans tous les langages.
-TS_QUERY_SRC="$LAZY_DIR/nvim-treesitter/runtime/queries"
-if [ -d "$TS_QUERY_SRC" ]; then
-    SITE_QUERY_DIR="$NVIM_DATA_DIR/site/queries"
-    mkdir -p "$SITE_QUERY_DIR"
-    for query_src in "$TS_QUERY_SRC"/*/; do
-        ln -sfn "${query_src%/}" "$SITE_QUERY_DIR/$(basename "$query_src")"
-    done
-    QUERY_COUNT=$(ls -1 "$SITE_QUERY_DIR" 2>/dev/null | wc -l | tr -d ' ')
-    echo -e "${GREEN}✓${NC} $QUERY_COUNT jeux de queries Treesitter liés"
-else
-    echo -e "${YELLOW}⚠${NC} Queries Treesitter absentes : la coloration restera vide."
-fi
-
-echo -e "\n${GREEN}[4/5]${NC} Installation de la chaîne Java..."
-for java_component in jdtls java-debug java-test; do
-    if [ -d "$java_component" ]; then
-        # cp -R src dest copierait dans dest s'il existe déjà : on vise le contenu
-        mkdir -p "$HOME/.local/share/$java_component"
-        cp -R "$java_component/." "$HOME/.local/share/$java_component/"
-        echo -e "${GREEN}✓${NC} $java_component installé dans $HOME/.local/share/$java_component"
-    else
-        echo -e "${YELLOW}⚠${NC} $java_component non inclus dans ce bundle."
-    fi
-done
-
-echo -e "\n${GREEN}[5/5]${NC} Vérification du binaire blink.cmp..."
-if ls "$LAZY_DIR"/blink.cmp/target/release/libblink_cmp_fuzzy.* &> /dev/null; then
-    echo -e "${GREEN}✓${NC} Binaire fuzzy blink.cmp présent"
-else
-    echo -e "${YELLOW}⚠${NC} Binaire blink.cmp absent : la complétion nécessitera cargo pour compiler."
-fi
-
-echo -e "\n${GREEN}========================================${NC}"
-echo -e "${GREEN}Installation terminée !${NC}"
-echo -e "${GREEN}========================================${NC}\n"
-
-echo -e "${GREEN}Lancez Neovim maintenant:${NC} ${BLUE}nvim${NC}"
-echo -e "Plugins, coloration et complétion fonctionnent déjà — rien à télécharger."
-echo -e "\n${YELLOW}À compléter au besoin (voir DEPENDENCIES.md):${NC}"
-echo -e "- ripgrep (rg)  → grep du picker Snacks (<leader>g)"
-echo -e "- fd            → recherche de fichiers, plus rapide"
-echo -e "- JDK 21+       → requis par jdtls (le serveur est là, pas la JVM)"
-echo -e "- lazygit       → <leader>lg"
-echo -e "- serveurs LSP  → paquets npm ordinaires"
-INSTALL_SCRIPT
+cp "$SCRIPT_DIR/install-offline.sh" "$EXPORT_DIR/install.sh"
 
 chmod +x "$EXPORT_DIR/install.sh"
 
 # Créer la documentation des dépendances
 cat > "$EXPORT_DIR/DEPENDENCIES.md" << 'DEPS_DOC'
-# Dépendances système
+# Dépendances du bundle offline
 
-Aucune n'est nécessaire pour démarrer : le bundle est autonome. Elles ajoutent
-la recherche, le support Java et les serveurs LSP.
+Ce bundle copie l'état de la machine d'export. Il n'embarque pas tous les
+outils de développement. Vérifie son contenu avant de le transférer.
 
-Sur une machine sans accès Internet mais disposant d'un miroir de paquets, les
-commandes ci-dessous fonctionnent telles quelles une fois le miroir configuré :
-ce sont des paquets système et npm ordinaires.
+| Fonction | Contenu embarqué / prérequis cible |
+| --- | --- |
+| Éditeur | Neovim >= 0.12 requis ; runtime fourni seulement si `nvim-linux-*.tar.gz` est présent |
+| Plugins | Uniquement les plugins du lockfile ; commits et absence de modifications suivies vérifiés avant export |
+| Coloration | Parsers natifs dans `treesitter-parsers/`, queries dans le plugin Treesitter |
+| Complétion | blink.cmp et son binaire si présent ; sans LSP, pas de complétion sémantique |
+| Recherche | `rg` requis pour le grep ; `fd` recommandé |
+| Git | `git` requis pour Fugitive/gitsigns ; `lazygit` pour `<leader>lg` |
+| Java | jdtls/debug/tests copiés seulement s'ils étaient installés ; JDK compatible non inclus |
+| Autres LSP / formatters | Non inclus : à provisionner séparément |
 
-## Installation selon votre système
+La JVM requise dépend de la version de jdtls exportée : JDK 25 pour la
+release 1.61 qualifiée ici ; vérifier les exigences des versions historiques. `JDTLS_JAVA_HOME`
+permet de la séparer du Java du projet. Les projets Maven/Gradle ont aussi
+besoin de leurs dépendances et outils de build disponibles hors ligne.
 
-### Ubuntu/Debian
+## Préparer les outils sur une machine connectée
+
+Les commandes suivantes nécessitent un réseau ou un miroir préalablement
+configuré. Elles ne constituent pas une installation offline :
+
 ```bash
-# Outils essentiels
-sudo apt update
-sudo apt install -y ripgrep fd-find git curl
-
-# Node.js (>= 18) pour les LSP installés via npm
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Python
-sudo apt install -y python3 python3-pip
-
-# LSP servers (optionnel, peut être fait après)
-npm install -g pyright bash-language-server typescript typescript-language-server svelte-language-server
-```
-
-### Fedora/RHEL
-```bash
-sudo dnf install -y ripgrep fd-find git curl nodejs python3 python3-pip
-```
-
-### Arch Linux
-```bash
-sudo pacman -S ripgrep fd git curl nodejs npm python python-pip
-```
-
-### macOS
-```bash
-brew install ripgrep fd git curl node python3
-brew install lazygit  # optionnel (<leader>lg)
-```
-
-## Dépendances détaillées
-
-### Essentielles
-- **Neovim >= 0.12** — plancher dur, pas une recommandation : nvim-treesitter
-  branche main refuse de démarrer en dessous. Si un `nvim-linux-*.tar.gz`
-  accompagne ce bundle, install.sh s'en charge et il n'y a rien à faire.
-- **git** - pour vim-fugitive et les indicateurs Git
-
-### Optionnelles
-- **ripgrep (rg)** - grep du picker Snacks (`<leader>g`)
-- **fd** - recherche de fichiers (Snacks a un repli interne plus lent)
-- **lazygit** - interface Git dans Neovim (`<leader>lg`)
-- **JDK 21+** - requis par jdtls ; le bundle embarque le serveur, pas la JVM
-- **Node.js >= 18** - pour les LSP installés via npm
-- **Python 3** - pour les outils Python
-
-### NON requises en offline (déjà incluses dans ce package)
-- ~~tree-sitter CLI~~ et ~~compilateur C~~ - les parsers pré-compilés sont inclus
-- ~~cargo~~ - le binaire fuzzy de blink.cmp est inclus
-- ~~réseau~~ - lazy.nvim ne clone rien, les plugins sont posés tels quels
-- ~~jdtls, java-debug, java-test~~ - embarqués, faute d'être distribués en
-  paquet système ou en npm
-
-### Formatters (optionnels, utilisés par conform.nvim)
-```bash
-# Lua
-brew install stylua            # macOS
-cargo install stylua           # ou via cargo
-
-# Python
-pip3 install ruff              # ruff_fix + ruff_format
-
-# JavaScript/TypeScript/HTML/CSS/JSON/YAML/Markdown
-npm install -g prettier
-
-# XML
-sudo apt install libxml2-utils # xmllint (Debian/Ubuntu)
-brew install libxml2           # xmllint (macOS)
-```
-
-### LSP Servers (optionnels, pour autocomplétion et diagnostics)
-```bash
-# Lua (complétion de la config Neovim elle-même)
-brew install lua-language-server          # macOS
-
-# Python
-npm install -g pyright
-pip3 install ruff
-
-# Bash
-npm install -g bash-language-server
-
-# JavaScript/TypeScript
-npm install -g typescript typescript-language-server
-
-# Svelte
-npm install -g svelte-language-server
-
-# Rust (si rust est installé)
+bun install -g pyright bash-language-server typescript typescript-language-server svelte-language-server prettier
+uv tool install ruff
+cargo install stylua
 rustup component add rust-analyzer
+go install golang.org/x/tools/gopls@latest
+go install golang.org/x/tools/cmd/goimports@latest
 ```
 
-## Vérification de l'installation
+Les lanceurs JS peuvent nécessiter `node` dans le PATH, même installés avec
+Bun. Installer aussi `lua-language-server`, `xmllint`, `git`, `rg`, `fd` selon
+les paquets disponibles sur la cible. Aucun de ces outils n'est ajouté par
+l'installeur offline.
+
+## Compatibilité native
+
+`PLATFORM` vérifie uniquement OS et architecture, **pas la glibc, libstdc++ ou
+les autres bibliothèques partagées**. Un export depuis une distribution Linux
+récente n'est pas une preuve de compatibilité Oracle Linux 8 / RHEL 9.
+Aucune compilation n'est nécessaire sur la cible si tous les parsers et le
+binaire blink sont présents et compatibles. Sinon, reconstruire le bundle
+sur une base compatible ; un téléchargement ne fonctionnera pas hors ligne.
+
+## Vérification sur la cible
 
 ```bash
-nvim --version | head -1          # doit afficher v0.12 ou plus
-command -v git && echo "✓ Git OK"
-command -v rg && echo "✓ Ripgrep OK"
-command -v fd && echo "✓ fd OK"
-command -v lazygit && echo "✓ lazygit OK (optionnel)"
-java -version 2>&1 | head -1      # 21+ requis par jdtls
-
-# Formatters
-command -v stylua && echo "✓ StyLua OK"
-command -v prettier && echo "✓ Prettier OK"
-command -v ruff && echo "✓ Ruff OK"
-command -v xmllint && echo "✓ xmllint OK"
-
-# LSP
-command -v lua-language-server && echo "✓ lua_ls OK"
-command -v pyright && echo "✓ Pyright OK"
-command -v typescript-language-server && echo "✓ TypeScript LSP OK"
+nvim --version
+command -v git rg fd lazygit
+java -version
 ```
 
-## Notes importantes
+Dans Neovim : `:checkhealth`, `:ConformInfo`, puis ouvrir un fichier de chacun
+des langages réellement utilisés. Vérifier les diagnostics et la complétion
+avec le serveur correspondant, pas uniquement le démarrage de l'éditeur.
 
-### Treesitter
-✅ **Les parsers Treesitter sont inclus dans ce package** (branche `main` de
-nvim-treesitter). Liste exacte : `ls treesitter-parsers/`.
-
-Ce sont des binaires **compilés pour la plateforme inscrite dans `PLATFORM`**.
-`install.sh` la vérifie et refuse une machine différente : sans réseau, la
-seule issue est de régénérer le bundle sur la bonne plateforme
-(`scripts/export-offline-linux.sh` dans le dépôt).
 DEPS_DOC
 
 # Créer le README
 cat > "$EXPORT_DIR/README.md" << 'README'
-# Configuration Neovim - Package Offline
+# Configuration Neovim — bundle offline
 
-Ce package contient une configuration complète de Neovim avec tous les plugins
-nécessaires pour une installation offline.
+Snapshot des plugins verrouillés de la machine d'export, avec les parsers natifs et les
+composants Java disponibles. Ce n'est pas une distribution de développement
+entièrement autonome : voir [DEPENDENCIES.md](DEPENDENCIES.md).
 
-## Contenu
+## Installation
 
-- `config/` - Fichiers de configuration (init.lua, lazy-lock.json)
-- `plugins/` - Tous les plugins tels qu'installés (binaire blink.cmp inclus)
-- `treesitter-parsers/` - Parsers Treesitter pré-compilés (branche main)
-- `jdtls/`, `java-debug/`, `java-test/` - Chaîne Java (absents si la machine
-  d'export ne les avait pas)
-- `nvim-linux-*.tar.gz` - Runtime Neovim 0.12+ (si embarqué à l'export)
-- `PLATFORM` - Plateforme de build ; `install.sh` refuse une cible différente
-- `install.sh` - Script d'installation automatique
-- `DEPENDENCIES.md` - Liste complète des dépendances système
-
-## Installation rapide
-
-1. **Transférez ce dossier** sur la machine cible (clé USB, réseau, etc.)
-
-   ⚠️ Le bundle contient des binaires natifs : il ne vaut que pour la
-   plateforme inscrite dans le fichier `PLATFORM`. `install.sh` compare et
-   refuse une machine différente plutôt que de laisser découvrir la panne à
-   l'usage. Pour une autre cible, régénérez le bundle avec
-   `scripts/export-offline-linux.sh` depuis le dépôt.
-
-2. **Lancez l'installation**:
-   ```bash
-   cd nvim-config-offline
-   chmod +x install.sh
-   ./install.sh
-   ```
-
-   Rien n'est écrit hors de votre `$HOME` : ni droits root, ni gestionnaire de
-   paquets. Si un `nvim-linux-*.tar.gz` accompagne ce bundle, Neovim est
-   installé au passage dans `~/.local/share/neovim` (lié depuis
-   `~/.local/bin`) — vérifiez alors que `~/.local/bin` est dans votre `PATH`.
-
-3. **Lancez Neovim**:
-   ```bash
-   nvim
-   ```
-
-4. **Complétez à votre rythme** (voir DEPENDENCIES.md) : ripgrep pour la
-   recherche, un JDK 21+ pour Java, les serveurs LSP et formatters. Rien de
-   tout cela n'est nécessaire au démarrage — l'éditeur, les plugins, la
-   coloration et la complétion fonctionnent dès l'étape 3.
-
-## Structure de l'installation
-
-```
-~/.config/nvim/              # Configuration
-  └── init.lua               # Fichier de config principal
-
-~/.local/share/nvim/
-  ├── lazy/                  # Plugins (dont lazy.nvim)
-  │   ├── gruvbox.nvim/      # Colorscheme
-  │   ├── snacks.nvim/       # Picker, explorer, indent, lazygit
-  │   ├── blink.cmp/         # Complétion (binaire fuzzy inclus)
-  │   └── ...                # Autres plugins
-  └── site/parser/           # Parsers Treesitter pré-compilés
-
-~/.local/share/neovim/       # Runtime Neovim (si embarqué dans le bundle)
-~/.local/bin/nvim            # → lien vers le runtime ci-dessus
-~/.local/share/jdtls/        # Serveur LSP Java
-~/.local/share/java-debug/   # Adaptateur de debug Java (nvim-dap)
-~/.local/share/java-test/    # Lanceur de tests Java
-```
-
-Rien en dehors de `$HOME` : l'installation ne demande pas de droits root et ne
-touche pas au gestionnaire de paquets du système.
-
-## Fonctionnalités
-
-### Plugins inclus
-- **gruvbox.nvim** (ellisonleao) - Colorscheme
-- **snacks.nvim** - Picker (fuzzy finder), explorateur, indent guides, lazygit
-- **blink.cmp** - Autocomplétion (snippets intégrés, binaire précompilé inclus)
-- **nvim-treesitter** (branche main) - Coloration syntaxique moderne
-- **leap.nvim** - Navigation rapide (`s` / `S`)
-- **tiny-inline-diagnostic** - Diagnostics inline discrets
-- **bufferline** + **lualine** - Onglets de buffers et statusline
-- **fugitive** + **gitsigns** - Intégration Git
-- **conform** - Formatage (stylua, ruff, prettier, xmllint)
-- **which-key** - Aide sur les raccourcis
-- **nvim-lspconfig** + **nvim-jdtls** - LSP (dont Java)
-
-### Raccourcis principaux
-- `<Space>` - Leader key
-- `<F9>` - Toggle explorateur de fichiers
-- `<Space><Tab>` - Révéler le fichier dans l'explorer / y revenir
-- `<C-p>` - Find files
-- `<Space>g` - Live grep
-- `<F12>` / `<Space>b` - Liste des buffers
-- `<Space>lg` - LazyGit
-- `<Space>f` - Format code
-- `s` + 2 caractères - Leap (saut rapide)
-- `gcc` / `gc` - Commenter (natif)
-- `gd` - Go to definition
-- `H` - Show hover documentation
-
-## Dépannage
-
-### "Erreur: bundle construit pour X, machine Y"
-Le bundle vient d'une autre plateforme, ses binaires sont inutilisables ici.
-Régénérez-le depuis le dépôt avec `scripts/export-offline-linux.sh`. Pour
-installer quand même la partie portable (config + plugins Lua) et vous passer
-de Treesitter, du fuzzy blink et du runtime embarqué : `rm PLATFORM`.
-
-### "nvim: command not found" après l'installation
-Le runtime embarqué est lié depuis `~/.local/bin`, absent du `PATH` par défaut
-sur certaines distributions :
 ```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && exec bash
+tar -xzf nvim-config-offline.tar.gz
+./nvim-config-offline/install.sh
 ```
 
-### "lazy.nvim not found"
+Le script fonctionne depuis n'importe quel dossier, refuse un OS/CPU différent
+et exige un Neovim >= 0.12 exécutable. Si un `nvim-linux-*.tar.gz` accompagne
+le bundle, il installe ce runtime quand le Neovim existant ne convient pas.
+Le contrôle OS/CPU ne garantit pas la compatibilité des bibliothèques système.
+
+Tout est installé sous `$HOME`, sans droits root :
+
+- `~/.config/nvim` : configuration ;
+- `~/.local/share/nvim` : plugins, parsers et queries ;
+- `~/.local/share/neovim` et `~/.local/bin/nvim` : runtime, si fourni ;
+- `~/.local/share/{jdtls,java-debug,java-test}` : composants Java, si fournis.
+
+La configuration, les données Neovim et les composants Java remplacés sont
+renommés avec un suffixe `.bak-<date>-<pid>`. Un symlink est sauvegardé sans
+modifier sa cible. Conserve ces sauvegardes jusqu'à validation ; elles ne sont
+pas purgées automatiquement. Le runtime Neovim embarqué est remplacé séparément.
+Les chemins XDG personnalisés ne sont pas pris en charge par ces scripts.
+
+Pour exposer le runtime aux prochains shells, ajoute si nécessaire :
+
 ```bash
-ls ~/.local/share/nvim/lazy/lazy.nvim
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### "rg command not found"
-Le picker (`<leader>g`) a besoin de ripgrep — voir DEPENDENCIES.md. Le reste de
-l'éditeur fonctionne sans.
+## Vérification et dépannage
 
-### Pas de coloration syntaxique / erreurs treesitter
-```bash
-ls ~/.local/share/nvim/site/parser/   # doit lister des .so
-nvim --headless -c 'checkhealth nvim-treesitter' -c 'qa'
-```
-Un dossier vide signifie que la machine d'export n'avait pas compilé ses
-parsers. Sans réseau, seul un nouveau bundle corrige cela.
+- `nvim --version`, puis `:checkhealth` et `:ConformInfo`.
+- Absence de coloration : vérifier `~/.local/share/nvim/site/parser/` et
+  `~/.local/share/nvim/site/queries/` ; reconstruire si incomplets.
+- Erreur de bibliothèque native : reconstruire pour l'OS/CPU et la base système
+  cibles. Ne pas supprimer `PLATFORM` pour contourner une incompatibilité.
+- Pas de LSP : installer le serveur externe ; les plugins ne le fournissent pas.
+- Java : vérifier le JDK requis par jdtls, `JDTLS_JAVA_HOME` et les jars présents.
+- `<leader>g` : nécessite ripgrep ; `<leader>lg` : nécessite lazygit.
 
-### La complétion ne fonctionne pas
-Vérifiez le binaire fuzzy de blink.cmp :
-```bash
-ls ~/.local/share/nvim/lazy/blink.cmp/target/release/
-```
-Absent, blink retombe sur son implémentation Lua : la complétion marche, le
-classement des résultats est simplement moins bon.
+Leader : Espace. `F9` ouvre l'explorer, `Ctrl-P` cherche des fichiers,
+`F12` liste les buffers, `<leader>f` formate, `H` affiche l'aide LSP,
+`gcc` commente et `s` lance Leap.
 
-### Java : rien ne démarre sur un fichier .java
-jdtls exige un JDK 21+ sur la machine (le bundle embarque le serveur, pas la
-JVM) :
-```bash
-java -version
-ls ~/.local/share/jdtls/plugins/org.eclipse.equinox.launcher_*.jar
-```
-
-### Les LSP ne fonctionnent pas
-Installez les serveurs LSP nécessaires (voir DEPENDENCIES.md). Ils ne sont pas
-embarqués : ce sont des paquets npm ordinaires, disponibles partout où un
-registre npm est joignable.
-
-## Support
-
-- `:help` dans Neovim
-- `:checkhealth` pour diagnostiquer les problèmes
 README
 
 # Créer l'archive
@@ -645,7 +299,7 @@ echo -e "\n${BLUE}Contenu:${NC}"
 echo -e "  • Configuration Neovim (init.lua, lazy-lock.json)"
 echo -e "  • $PLUGIN_COUNT plugins (dont binaire blink.cmp précompilé)"
 if [ -d "$TREESITTER_PARSER_DEST" ]; then
-    PARSER_COUNT=$(ls -1 "$TREESITTER_PARSER_DEST"/*.so 2>/dev/null | wc -l | tr -d ' ')
+    PARSER_COUNT=$(find "$TREESITTER_PARSER_DEST" -name '*.so' -type f | wc -l | tr -d ' ')
     echo -e "  • ${GREEN}$PARSER_COUNT parsers Treesitter pré-compilés${NC}"
 fi
 for java_component in jdtls java-debug java-test; do

@@ -241,18 +241,78 @@ require("lazy").setup({
         },
         keys = {
             -- Picker (remplace Telescope)
-            { "<C-p>", function() Snacks.picker.files() end, desc = "Find files" },
-            { "<leader>p", function() Snacks.picker.buffers() end, desc = "Find buffers" },
-            { "<leader>g", function() Snacks.picker.grep() end, desc = "Live grep" },
-            { "<leader>fh", function() Snacks.picker.help() end, desc = "Help tags" },
-            { "<leader>fd", function() Snacks.picker.diagnostics() end, desc = "Diagnostics" },
-            { "<leader>fr", function() Snacks.picker.lsp_references() end, desc = "LSP references" },
-            { "<leader>fs", function() Snacks.picker.lsp_symbols() end, desc = "Document symbols" },
+            {
+                "<C-p>",
+                function()
+                    Snacks.picker.files()
+                end,
+                desc = "Find files",
+            },
+            {
+                "<leader>p",
+                function()
+                    Snacks.picker.buffers()
+                end,
+                desc = "Find buffers",
+            },
+            {
+                "<leader>g",
+                function()
+                    Snacks.picker.grep()
+                end,
+                desc = "Live grep",
+            },
+            {
+                "<leader>fh",
+                function()
+                    Snacks.picker.help()
+                end,
+                desc = "Help tags",
+            },
+            {
+                "<leader>fd",
+                function()
+                    Snacks.picker.diagnostics()
+                end,
+                desc = "Diagnostics",
+            },
+            {
+                "<leader>fr",
+                function()
+                    Snacks.picker.lsp_references()
+                end,
+                desc = "LSP references",
+            },
+            {
+                "<leader>fs",
+                function()
+                    Snacks.picker.lsp_symbols()
+                end,
+                desc = "Document symbols",
+            },
             -- Buffers (remplace BufExplorer)
-            { "<F12>", function() Snacks.picker.buffers() end, desc = "Buffer list" },
-            { "<leader>b", function() Snacks.picker.buffers() end, desc = "Buffer list" },
+            {
+                "<F12>",
+                function()
+                    Snacks.picker.buffers()
+                end,
+                desc = "Buffer list",
+            },
+            {
+                "<leader>b",
+                function()
+                    Snacks.picker.buffers()
+                end,
+                desc = "Buffer list",
+            },
             -- Explorer (remplace NvimTree)
-            { "<F9>", function() Snacks.explorer() end, desc = "Toggle explorer" },
+            {
+                "<F9>",
+                function()
+                    Snacks.explorer()
+                end,
+                desc = "Toggle explorer",
+            },
             {
                 "<leader><Tab>",
                 function()
@@ -271,7 +331,13 @@ require("lazy").setup({
                 desc = "Explorer: reveal / retour fichier",
             },
             -- LazyGit
-            { "<leader>lg", function() Snacks.lazygit() end, desc = "LazyGit" },
+            {
+                "<leader>lg",
+                function()
+                    Snacks.lazygit()
+                end,
+                desc = "LazyGit",
+            },
         },
     },
 
@@ -456,7 +522,9 @@ require("lazy").setup({
     {
         "nvim-treesitter/nvim-treesitter",
         branch = "main",
-        build = ":TSUpdate",
+        -- En headless, le script de build installe et attend les parsers
+        -- explicitement ; +qa interromprait une compilation asynchrone ici.
+        build = #vim.api.nvim_list_uis() > 0 and ":TSUpdate" or false,
         lazy = false,
         config = function()
             require("nvim-treesitter").setup()
@@ -489,7 +557,9 @@ require("lazy").setup({
                 "vue",
                 "regex",
             }
-            require("nvim-treesitter").install(vim.g.ts_parsers)
+            if #vim.api.nvim_list_uis() > 0 then
+                require("nvim-treesitter").install(vim.g.ts_parsers)
+            end
             -- Le highlight se lance au FileType (pas de module configs sur main)
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function()
@@ -542,7 +612,13 @@ require("lazy").setup({
             { "rcarriga/nvim-dap-ui", dependencies = { "nvim-neotest/nvim-nio" } },
         },
         keys = {
-            { "<leader>db", function() require("dap").toggle_breakpoint() end, desc = "Debug: breakpoint" },
+            {
+                "<leader>db",
+                function()
+                    require("dap").toggle_breakpoint()
+                end,
+                desc = "Debug: breakpoint",
+            },
             {
                 "<leader>dB",
                 function()
@@ -550,12 +626,48 @@ require("lazy").setup({
                 end,
                 desc = "Debug: breakpoint conditionnel",
             },
-            { "<F5>", function() require("dap").continue() end, desc = "Debug: lancer / continuer" },
-            { "<F10>", function() require("dap").step_over() end, desc = "Debug: pas au-dessus" },
-            { "<F11>", function() require("dap").step_into() end, desc = "Debug: pas dedans" },
-            { "<leader>do", function() require("dap").step_out() end, desc = "Debug: sortir" },
-            { "<leader>dt", function() require("dap").terminate() end, desc = "Debug: arrêter" },
-            { "<leader>du", function() require("dapui").toggle() end, desc = "Debug: panneaux" },
+            {
+                "<F5>",
+                function()
+                    require("dap").continue()
+                end,
+                desc = "Debug: lancer / continuer",
+            },
+            {
+                "<F10>",
+                function()
+                    require("dap").step_over()
+                end,
+                desc = "Debug: pas au-dessus",
+            },
+            {
+                "<F11>",
+                function()
+                    require("dap").step_into()
+                end,
+                desc = "Debug: pas dedans",
+            },
+            {
+                "<leader>do",
+                function()
+                    require("dap").step_out()
+                end,
+                desc = "Debug: sortir",
+            },
+            {
+                "<leader>dt",
+                function()
+                    require("dap").terminate()
+                end,
+                desc = "Debug: arrêter",
+            },
+            {
+                "<leader>du",
+                function()
+                    require("dapui").toggle()
+                end,
+                desc = "Debug: panneaux",
+            },
         },
         config = function()
             local dap, dapui = require("dap"), require("dapui")
@@ -632,6 +744,9 @@ require("lazy").setup({
             -- de `settings` à sa création, avant que before_init ne tourne, donc
             -- y réassigner une table n'a aucun effet.
             vim.lsp.config("pyright", {
+                -- Pyright 1.1.411 + Nvim 0.12.5 : les refresh pull concurrents
+                -- peuvent effacer un diagnostic. Utiliser son mode push natif.
+                init_options = { disablePullDiagnostics = true },
                 on_init = function(client)
                     -- root_dir est nil sur un fichier ouvert hors projet
                     if not client.root_dir then
@@ -720,7 +835,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 -- Java (jdtls via nvim-jdtls)
 -- ============================
 
--- Deux JVM à ne pas confondre : celle qui exécute jdtls, qui doit être en 21+,
+-- Deux JVM à ne pas confondre : celle qui exécute jdtls (25 dans le bundle),
 -- et celle que le projet cible. Sur un projet legacy le `java` du PATH est
 -- souvent celui du projet — un JDK 8 rejette --add-modules et --add-opens,
 -- introduites en 9, et le serveur sort en erreur. JDTLS_JAVA_HOME fige la JVM
@@ -732,14 +847,11 @@ local jdtls_java = vim.env.JDTLS_JAVA_HOME and (vim.env.JDTLS_JAVA_HOME .. "/bin
 -- un projet 1.8 est analysé avec le JDK du serveur et voit disparaître les
 -- APIs retirées depuis (javax.xml.bind, sun.misc…).
 local java_runtimes = {}
-for _, runtime in ipairs({
-    { env = "JAVA8_HOME", name = "JavaSE-1.8" },
-    { env = "JAVA11_HOME", name = "JavaSE-11" },
-    { env = "JAVA17_HOME", name = "JavaSE-17" },
-    { env = "JAVA21_HOME", name = "JavaSE-21" },
-}) do
-    if vim.env[runtime.env] then
-        table.insert(java_runtimes, { name = runtime.name, path = vim.env[runtime.env] })
+for version = 8, 25 do
+    local path = vim.env["JAVA" .. version .. "_HOME"]
+    if path then
+        local name = version == 8 and "JavaSE-1.8" or ("JavaSE-" .. version)
+        table.insert(java_runtimes, { name = name, path = path })
     end
 end
 
@@ -790,8 +902,7 @@ vim.api.nvim_create_autocmd("FileType", {
         -- Adaptateur de debug et lanceur de tests, posés par scripts/install.sh.
         -- Absents = LSP seul, sans breakpoints ni tests : on ne casse pas
         -- l'édition pour autant.
-        local debug_bundles =
-            vim.fn.glob(vim.fn.expand("~/.local/share/java-debug") .. "/*.jar", true, true)
+        local debug_bundles = vim.fn.glob(vim.fn.expand("~/.local/share/java-debug") .. "/*.jar", true, true)
 
         -- Le lanceur embarque deux jars qui ne sont pas des bundles OSGi ;
         -- jdtls les rejette au démarrage si on les lui passe.
@@ -810,11 +921,16 @@ vim.api.nvim_create_autocmd("FileType", {
                 "-Dlog.level=ALL",
                 "-Xmx1g",
                 "--add-modules=ALL-SYSTEM",
-                "--add-opens", "java.base/java.util=ALL-UNNAMED",
-                "--add-opens", "java.base/java.lang=ALL-UNNAMED",
-                "-jar", launcher,
-                "-configuration", config_dir,
-                "-data", workspace_dir,
+                "--add-opens",
+                "java.base/java.util=ALL-UNNAMED",
+                "--add-opens",
+                "java.base/java.lang=ALL-UNNAMED",
+                "-jar",
+                launcher,
+                "-configuration",
+                config_dir,
+                "-data",
+                workspace_dir,
             },
             root_dir = root_dir,
             capabilities = capabilities,
@@ -852,7 +968,7 @@ vim.api.nvim_create_autocmd("FileType", {
                                 .. tostring(code)
                                 .. "). Vérifiez que `"
                                 .. jdtls_java
-                                .. "` est un JDK 21+ ; sinon renseignez JDTLS_JAVA_HOME.",
+                                .. "` convient à votre version de jdtls (JDK 25 dans le bundle EL8). Consultez :LspLog et JDTLS_JAVA_HOME.",
                             vim.log.levels.ERROR
                         )
                     end)

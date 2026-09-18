@@ -12,7 +12,7 @@
 # la cible, elle, n'en a pas besoin. Le bundle produit embarque le runtime
 # Neovim, donc il ne dépend pas des dépôts de la machine d'arrivée.
 #
-#   ./scripts/export-offline-linux.sh            # x86_64, nvim stable
+#   ./scripts/export-offline-linux.sh            # x86_64, nvim 0.12.5
 #   ARCH=arm64 ./scripts/export-offline-linux.sh # cible aarch64
 #   NVIM_VERSION=v0.12.4 ./scripts/export-offline-linux.sh
 # =============================================================================
@@ -31,7 +31,9 @@ case "$ARCH" in
     *) echo "ARCH inconnu: $ARCH (attendu amd64 ou arm64)" >&2; exit 1 ;;
 esac
 
-NVIM_VERSION="${NVIM_VERSION:-stable}"
+NVIM_VERSION="${NVIM_VERSION:-v0.12.5}"
+TREE_SITTER_VERSION="${TREE_SITTER_VERSION:-v0.26.1}"
+BUN_VERSION="${BUN_VERSION:-bun-v1.3.10}"
 IMAGE="${IMAGE:-fedora:43}"
 
 if ! command -v docker &>/dev/null; then
@@ -72,28 +74,41 @@ docker run --rm --platform "$DOCKER_PLATFORM" \
     ${JAR_MOUNTS[@]+"${JAR_MOUNTS[@]}"} \
     -e NVIM_VERSION="$NVIM_VERSION" \
     -e NVIM_ARCH="$NVIM_ARCH" \
+    -e TREE_SITTER_VERSION="$TREE_SITTER_VERSION" \
+    -e BUN_VERSION="$BUN_VERSION" \
     "$IMAGE" bash -euo pipefail -c '
 echo "→ dépendances système"
 # gcc et tree-sitter compilent les parsers ; unzip extrait les jars des
 # extensions VS Code ; le JDK conditionne l installation de jdtls.
-dnf -y -q install git curl gcc unzip tar findutils ripgrep nodejs npm \
-    java-21-openjdk-devel python3 >/dev/null
+dnf -y -q install git curl gcc unzip tar gzip findutils ripgrep nodejs \
+    java-25-openjdk-devel python3 >/dev/null
 
 echo "→ neovim $NVIM_VERSION"
-curl -fsSL -o /tmp/nvim-linux-$NVIM_ARCH.tar.gz \
+curl -fsSL -o "/tmp/nvim-linux-$NVIM_ARCH.tar.gz" \
     "https://github.com/neovim/neovim/releases/download/$NVIM_VERSION/nvim-linux-$NVIM_ARCH.tar.gz"
 mkdir -p /opt/nvim
-tar -xzf /tmp/nvim-linux-$NVIM_ARCH.tar.gz -C /opt/nvim --strip-components=1
+tar -xzf "/tmp/nvim-linux-$NVIM_ARCH.tar.gz" -C /opt/nvim --strip-components=1
 export PATH="/opt/nvim/bin:$PATH"
 nvim --version | head -1
 
 echo "→ tree-sitter CLI"
-npm install -g --silent tree-sitter-cli >/dev/null
+TS_ARCH=$NVIM_ARCH
+[ "$TS_ARCH" != x86_64 ] || TS_ARCH=x64
+curl -fsSL -o /tmp/tree-sitter.gz \
+    "https://github.com/tree-sitter/tree-sitter/releases/download/$TREE_SITTER_VERSION/tree-sitter-linux-$TS_ARCH.gz"
+gzip -dc /tmp/tree-sitter.gz > /usr/local/bin/tree-sitter
+chmod +x /usr/local/bin/tree-sitter
+tree-sitter --version
+
+echo "→ Bun (installation des outils JS)"
+curl -fsSL -o /tmp/install-bun.sh https://bun.sh/install
+bash /tmp/install-bun.sh "$BUN_VERSION"
+export PATH="$HOME/.bun/bin:$PATH"
 
 # Copie car install.sh pose un symlink vers le dépôt et export-offline.sh
 # écrit dans dist/ : les deux échouent sur un montage read-only.
 cp -R /repo /work
-cd /work
+cd /work || exit 1
 rm -rf dist
 
 # install_vscode_jars saute le téléchargement quand les jars sont déjà là :
@@ -106,17 +121,22 @@ for component in java-debug java-test; do
 done
 
 echo "→ plugins, LSP et chaîne Java"
-# install.sh sort en 1 si un composant optionnel manque : un LSP Go, un
-# formatter Rust, le marketplace en 503. Sans gravité pour un bundle, dont les
-# vraies conditions de succès sont vérifiées explicitement plus bas.
-./scripts/install.sh || echo "  (install.sh signale des manques — vérification ciblée plus bas)"
+# lazy cannot restore its own bootstrap revision through :Lazy restore.
+LAZY_REVISION=$(python3 -c "import json; print(json.load(open(\"lazy-lock.json\"))[\"lazy.nvim\"][\"commit\"])")
+mkdir -p "$HOME/.local/share/nvim/lazy"
+git clone --filter=blob:none https://github.com/folke/lazy.nvim.git "$HOME/.local/share/nvim/lazy/lazy.nvim"
+git -C "$HOME/.local/share/nvim/lazy/lazy.nvim" checkout --detach "$LAZY_REVISION"
+# Les outils optionnels absents donnent des avertissements, pas un exit 1.
+# Un vrai échec (plugins ou téléchargement Java) doit arrêter le build.
+./scripts/install.sh
 
-# install.sh charge les plugins mais la compilation des parsers est
-# asynchrone : nvim rendrait la main avant la fin. On rejoue install() sur la
-# liste exposée par init.lua, cette fois en attendant.
+# En headless, init.lua ne lance ni install() ni TSUpdate automatiquement.
+# Compiler une seule fois, attendre, puis charger chaque parser avant export.
 echo "→ parsers Treesitter (compilation)"
 nvim --headless -c "lua require(\"nvim-treesitter\").install(vim.g.ts_parsers):wait(1800000)" +qa
-PARSERS=$(ls -1 "$HOME/.local/share/nvim/site/parser"/*.so 2>/dev/null | wc -l)
+# Un nouveau processus découvre aussi les dossiers parser/queries créés au build.
+nvim --headless -c "luafile scripts/check-runtime.lua"
+PARSERS=$(find "$HOME/.local/share/nvim/site/parser" -maxdepth 1 -type f -name "*.so" | wc -l)
 echo "  $PARSERS parsers compilés"
 
 # Conditions de succès du bundle, par opposition aux manques tolérables.
@@ -140,7 +160,7 @@ done
 echo "→ export"
 NVIM_TARBALL=/tmp/nvim-linux-$NVIM_ARCH.tar.gz ./scripts/export-offline.sh
 
-cp dist/nvim-config-offline.tar.gz /out/nvim-config-offline-linux-$NVIM_ARCH.tar.gz
+cp dist/nvim-config-offline.tar.gz "/out/nvim-config-offline-linux-$NVIM_ARCH.tar.gz"
 '
 
 ARCHIVE="$REPO_DIR/dist/nvim-config-offline-linux-$NVIM_ARCH.tar.gz"

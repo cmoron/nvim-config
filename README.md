@@ -5,14 +5,16 @@ Configuration Neovim personnelle, moderne et minimaliste (Neovim 0.12+).
 Stack actuelle : **snacks.nvim** (picker, explorer, indent, lazygit), **blink.cmp** (complétion),
 **nvim-treesitter** (branche `main`), **leap**, **tiny-inline-diagnostic**, **gruvbox**.
 
-> **Versions :** le tag `v2.0.0` correspond à cette stack. Le tag `v1.0.0` pointe sur
-> l'ancienne stack (Telescope, nvim-cmp, nvim-tree, harpoon…) si un retour arrière est nécessaire.
+> **Versions :** la migration de stack commence à `v2.0.0` ; les tags `v3.0.0`
+> et `v3.1.0` sont également présents. `v1.0.0` conserve l’ancienne stack
+> (Telescope, nvim-cmp, nvim-tree, harpoon…). `lazy-lock.json` fixe les plugins.
 
 ## Prérequis
 
 ### Version Neovim
 
-- **Neovim >= 0.12** (vim.lsp.config natif, nvim-treesitter branche `main`)
+- **Neovim >= 0.12** : exigé par le commit verrouillé de nvim-treesitter `main`
+  (l’API `vim.lsp.config` existe dès 0.11). Vérifier la version réellement installée.
 
 ```bash
 # macOS
@@ -35,13 +37,16 @@ brew install git ripgrep fd lazygit tree-sitter-cli
 
 # Ubuntu/Debian
 sudo apt update
-sudo apt install -y git curl ripgrep fd-find build-essential
+sudo apt install -y git curl ripgrep fd-find build-essential python3 unzip
 ```
 
 - **git** : gestion des plugins et vim-fugitive
 - **ripgrep** / **fd** : recherche du picker Snacks (grep / find files)
 - **lazygit** : interface Git dans Neovim (`<leader>lg`) — optionnel
-- **tree-sitter-cli** : compilation des parsers Treesitter (branche `main`)
+- **tree-sitter-cli >= 0.26.1** : compilation des parsers Treesitter (`main`).
+  Sous Linux : `cargo install --locked tree-sitter-cli`, ou binaire des
+  [releases officielles](https://github.com/tree-sitter/tree-sitter/releases).
+  Le plugin déconseille l’installation du CLI via un gestionnaire JS.
 - **build-essential** : compilateur C pour les parsers (Linux uniquement)
 
 #### 2. Python (via uv)
@@ -53,16 +58,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install ruff
 ```
 
-#### 3. Node.js (v20 LTS)
+#### 3. Outils JavaScript
+
+Installer un runtime Node compatible avec les serveurs choisis (Node 24 LTS
+est une base actuelle) et **Bun** pour installer les outils :
 
 ```bash
-# Ubuntu/Debian via NodeSource
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Outils JS/Bash/Lua en global
-sudo npm install -g pyright prettier bash-language-server
+bun install -g pyright prettier bash-language-server typescript typescript-language-server svelte-language-server
 ```
+
+Bun est le gestionnaire employé par `install.sh`. Les lanceurs de certains
+outils utilisent `#!/usr/bin/env node` : installer avec Bun ne dispense donc
+pas automatiquement de Node. Node 20 est arrivé en fin de vie ; consulter le
+[calendrier Node.js](https://nodejs.org/en/about/previous-releases).
 
 #### 4. Rust (via rustup)
 
@@ -79,11 +87,14 @@ Utilisés par conform.nvim via `<leader>f` :
 | Langage                     | Formatter | Installé via                                         |
 | --------------------------- | --------- | ---------------------------------------------------- |
 | Python                      | Ruff      | `uv tool install ruff`                               |
-| JS/TS/HTML/CSS/JSON/YAML/MD | Prettier  | `npm install -g prettier`                            |
+| JS/TS/HTML/CSS/JSON/YAML/MD | Prettier  | `bun install -g prettier`                            |
 | Lua                         | StyLua    | `cargo install stylua` / `brew install stylua`       |
 | XML                         | xmllint   | `apt install libxml2-utils` / `brew install libxml2` |
 
-> **Note :** si un formatter n'est pas installé, conform.nvim utilise le LSP en fallback.
+> **Note :** le LSP est préféré seulement pour les filetypes sans formatter
+> dédié. Si un formatter configuré est absent, il n’y a pas de repli LSP.
+> Go utilise `goimports` puis `gofmt` ; installer `goimports` avec
+> `go install golang.org/x/tools/cmd/goimports@latest`.
 
 ### Fonts
 
@@ -115,21 +126,29 @@ fc-cache -fv
 | Langage              | Serveur LSP                | Installé via                                                                       |
 | -------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
 | Lua                  | lua-language-server        | `brew install lua-language-server`                                                 |
-| Python               | Pyright                    | `npm install -g pyright`                                                           |
+| Python               | Pyright                    | `bun install -g pyright`                                                           |
 | Python (lint/format) | Ruff                       | `uv tool install ruff`                                                             |
-| Bash                 | bash-language-server       | `npm install -g bash-language-server`                                              |
-| JS/TS                | typescript-language-server | `npm install -g typescript-language-server typescript`                             |
-| Svelte               | svelte-language-server     | `npm install -g svelte-language-server`                                            |
+| Bash                 | bash-language-server       | `bun install -g bash-language-server`                                              |
+| JS/TS                | typescript-language-server | `bun install -g typescript-language-server typescript`                             |
+| Svelte               | svelte-language-server     | `bun install -g svelte-language-server`                                            |
 | Rust                 | rust-analyzer              | `rustup component add rust-analyzer`                                               |
 | Go                   | gopls                      | `go install golang.org/x/tools/gopls@latest`                                       |
-| Java                 | jdtls                      | `scripts/install.sh` (si JDK 21+ présent) ; le bundle offline l'embarque aussi     |
+| Java                 | jdtls                      | `scripts/install.sh` (si JDK 25+ présent) ; le bundle offline l'embarque aussi     |
 | Java (debug)         | java-debug-adapter         | `scripts/install.sh`, extrait de l'extension VS Code → `~/.local/share/java-debug` |
 | Java (tests)         | vscode-java-test           | `scripts/install.sh`, extrait de l'extension VS Code → `~/.local/share/java-test`  |
+
+Les outils `lua-language-server`, `goimports` et les runtimes de langages
+sont à installer séparément. L’installation de `rust-analyzer` est suggérée
+mais pas exécutée par le script. Pour Java, `JDTLS_JAVA_HOME` sélectionne
+la JVM de jdtls, distincte du Java du projet ; `JAVA8_HOME`, `JAVA11_HOME`,
+`JAVA17_HOME`, `JAVA21_HOME`, `JAVA25_HOME` (et toutes les versions de 8 à 25)
+déclarent les runtimes de projets disponibles. Le bundle EL8 embarque le JDK 25
+du serveur ; le JDK du projet, notamment Java 8, reste distinct.
 
 ### Vérification
 
 ```bash
-which lua-language-server pyright bash-language-server typescript-language-server svelteserver rust-analyzer
+command -v lua-language-server pyright bash-language-server typescript-language-server svelteserver rust-analyzer
 ```
 
 ## Installation
@@ -146,7 +165,9 @@ cd nvim-config
 et formatters manquants, puis les plugins aux versions de `lazy-lock.json`. Le
 dépôt reste à l'endroit choisi : toute modification y est active immédiatement.
 
-Une config existante est sauvegardée en `~/.config/nvim.bak-<horodatage>`.
+Un dossier de configuration existant est sauvegardé en
+`~/.config/nvim.bak-<horodatage>`. En online, un autre symlink est remplacé
+sans modifier son dossier cible.
 
 | Option            | Effet                                        |
 | ----------------- | -------------------------------------------- |
@@ -155,29 +176,98 @@ Une config existante est sauvegardée en `~/.config/nvim.bak-<horodatage>`.
 
 ### Installation offline
 
-Le script `scripts/export-offline.sh` génère un bundle complet (plugins + binaire
-blink.cmp + parsers Treesitter pré-compilés + chaîne Java jdtls/debug/tests)
-transférable sur une machine sans connexion :
+Le script `scripts/export-offline.sh` exporte les **22 plugins verrouillés**,
+les parsers natifs disponibles et les composants Java installés. Il requiert
+Python 3 et Git pour vérifier le lockfile, et refuse les plugins absents,
+modifiés ou à un autre commit. Les anciens plugins hors lockfile sont exclus.
+Les fichiers non suivis (dont les binaires blink) restent copiés.
 
 ```bash
+# Si nécessaire, restaurer les versions voulues dans Neovim : :Lazy restore
+# Puis mettre à jour les parsers pour ce commit : :TSUpdate
 scripts/export-offline.sh
 # → dist/nvim-config-offline.tar.gz
 ```
 
-⚠️ Les binaires sont compilés pour l'architecture de la machine d'export. Le
-bundle enregistre sa plateforme dans `PLATFORM` et son `install.sh` refuse une
-cible différente.
+L’export local ne fournit Neovim que si `NVIM_TARBALL` pointe vers une archive
+`nvim-linux-*.tar.gz`. Il ne fournit **ni JDK, ni runtime Node, ni LSP externes,
+ni formatters, ni rg/fd/git/lazygit**. Un dossier de parsers vide est signalé ;
+le bundle reste incomplet pour la coloration hors ligne. Java est inclus
+seulement si les composants étaient installés sur la machine d’export.
 
-**Cible d'une autre plateforme** — `scripts/export-offline-linux.sh` rejoue
-l'export dans un conteneur Docker de la bonne architecture, et embarque en plus
-le runtime Neovim 0.12+ (extrait sous `~/.local`, donc installable sans droits
-root et sur un système à racine immuable) :
+`PLATFORM` vérifie l’OS et le CPU, **pas la compatibilité glibc/libstdc++**.
+Les parsers exportés doivent correspondre au plugin Treesitter verrouillé.
+
+Le wrapper Linux construit dans Docker (`fedora:43` par défaut), embarque
+Neovim `v0.12.5` et utilise le CLI Tree-sitter `v0.26.1` officiel :
 
 ```bash
-scripts/export-offline-linux.sh              # cible Linux x86_64
-ARCH=arm64 scripts/export-offline-linux.sh   # cible Linux aarch64
-# → dist/nvim-config-offline-linux-<arch>.tar.gz
+scripts/export-offline-linux.sh
+ARCH=arm64 scripts/export-offline-linux.sh
+# → dist/nvim-config-offline-linux-{x86_64,arm64}.tar.gz
+# Réglages : NVIM_VERSION, TREE_SITTER_VERSION, BUN_VERSION, IMAGE (base dnf compatible)
 ```
+
+Le build exige un Docker fonctionnel et du réseau. Les versions des plugins
+et jdtls 1.61.0 sont verrouillés, mais l’image Fedora de base et les extensions
+VS Code restent mobiles : le build n’est pas encore entièrement reproductible.
+**L’archive du 18 septembre 2026 est validée sur Fedora 43 et UBI 9.6
+(base RHEL 9), sans root ni réseau. Elle est incompatible avec Oracle Linux 8.**
+La recette dédiée ci-dessous remplace le runtime pour OL8 et ajoute les outils
+Java/Python. Chaque nouvelle archive doit repasser la recette sur ses cibles.
+
+```bash
+scripts/export-offline-el8.sh
+# → dist/nvim-config-offline-el8-x86_64.tar.gz et .sha256
+```
+
+Ce bundle EL8 fournit Neovim 0.12.5 compilé sur OL8, jdtls 1.61.0,
+un JDK 25 privé, Node 24, Pyright et Ruff. Il réutilise les plugins et parsers
+du bundle Linux. Les JDK des projets Java 8 à 24, les environnements Python
+et les dépendances Maven/Gradle restent à fournir. Voir le
+[guide OL8 Java/Python](docs/offline-el8.md) pour les commandes et la matrice
+de validation.
+Voir l’[étude de packaging Enterprise Linux](docs/packaging-enterprise-linux.md) et
+l’[évaluation de compilation OL8 et des versions Neovim](docs/neovim-ol8-build-evaluation.md).
+
+Sur la cible :
+
+```bash
+tar -xzf nvim-config-offline.tar.gz
+./nvim-config-offline/install.sh
+```
+
+L’installation ne demande pas de droits root. La configuration, les données
+Neovim et les composants Java remplacés sont déplacés vers des sauvegardes
+`.bak-<date>-<pid>` ; un symlink n’est pas suivi. Ces sauvegardes sont conservées
+jusqu’à suppression manuelle. Le runtime embarqué et le lanceur `~/.local/bin/nvim` sont également
+sauvegardés avant remplacement. Ajouter `~/.local/bin` au PATH.
+Les scripts utilisent les chemins HOME standards, sans prise en charge XDG
+personnalisée. Consulter aussi les README et DEPENDENCIES générés dans le bundle.
+
+Les [GitHub Releases](https://github.com/cmoron/nvim-config/releases) hébergent
+le bundle EL8 qualifié et son SHA-256. Les binaires ne sont pas committés ;
+les caches de build vivent sous `~/.cache/nvim-config/`.
+
+### Contrôles du dépôt
+
+```bash
+bash scripts/test-packaging.sh    # fixtures isolées, aucun téléchargement
+shellcheck scripts/*.sh
+stylua --check init.lua scripts/check-runtime.lua scripts/check-lsp.lua
+scripts/install.sh --check
+# Après construction du bundle ; Docker doit disposer de l'image cible :
+bash scripts/test-offline-linux.sh
+bash scripts/test-offline-linux.sh dist/nvim-config-offline-linux-x86_64.tar.gz registry.access.redhat.com/ubi9/ubi:9.6
+```
+
+Les tests de packaging vérifient les installations et sauvegardes avec de faux
+binaires ; ils ne prouvent pas l’ABI d’une cible Linux. Le test Docker installe
+l’archive sous un utilisateur non privilégié, sans réseau, puis charge les
+23 parsers, leurs queries et le moteur Rust de blink. Le wrapper exécute aussi
+ce contrôle de runtime avant de publier l’archive. Voir le
+[rapport de revue](docs/review-2026-09-18.md) pour les validations réelles et
+les limites restantes.
 
 ## Raccourcis - Vue d'ensemble complète
 
@@ -213,11 +303,12 @@ Le picker affiche les fichiers cachés et respecte `.gitignore` nativement.
 
 ### 📑 Gestion des Buffers
 
-| Raccourci            | Description                |
-| -------------------- | -------------------------- |
-| `Tab`                | Buffer suivant             |
-| `Shift-Tab`          | Buffer précédent           |
-| `F12` ou `<leader>b` | Liste des buffers (picker) |
+| Raccourci            | Description                              |
+| -------------------- | ---------------------------------------- |
+| `Tab`                | Buffer suivant                           |
+| `Shift-Tab`          | Buffer précédent                         |
+| `F12` ou `<leader>b` | Liste des buffers (picker)               |
+| `<leader>x`          | Fermer le buffer en gardant les fenêtres |
 
 Les buffers ouverts sont affichés en onglets (bufferline).
 
@@ -245,7 +336,7 @@ Les parenthèses sont ajoutées automatiquement à l'acceptation d'une fonction 
 
 ### 🔧 LSP - Navigation et Actions
 
-**Actifs quand un serveur LSP est attaché** (Lua, Python, Bash, JS/TS, Svelte, Rust, Java)
+**Actifs quand un serveur LSP est attaché** (Lua, Python, Bash, JS/TS, Svelte, Rust, Go, Java)
 
 | Raccourci                 | Description                  |
 | ------------------------- | ---------------------------- |
@@ -283,23 +374,26 @@ Les diagnostics s'affichent en **inline discret** sur la ligne du curseur
 
 ### ✏️ Édition et Formatage
 
-| Raccourci   | Mode      | Description                                    |
-| ----------- | --------- | ---------------------------------------------- |
-| `<leader>f` | Normal    | Formater le buffer (conform.nvim)              |
-| `Shift-Tab` | Insertion | Déindenter la ligne                            |
-| `J` / `K`   | Normal    | Scroll rapide bas (2 lignes) / haut (3 lignes) |
+| Raccourci   | Mode      | Description                                      |
+| ----------- | --------- | ------------------------------------------------ |
+| `<leader>f` | Normal    | Formater le buffer (conform.nvim)                |
+| `Shift-Tab` | Insertion | Complétion/snippet si actif, sinon déindentation |
+| `J` / `K`   | Normal    | Scroll rapide bas (2 lignes) / haut (3 lignes)   |
 
 > **Note :** `K` est utilisé pour le scroll. Pour la documentation LSP, utiliser `H`.
 
 ### 🔄 Configuration
 
-| Raccourci         | Description                       |
-| ----------------- | --------------------------------- |
-| `<leader><Enter>` | Recharger la configuration Neovim |
+| Raccourci         | Description                                                    |
+| ----------------- | -------------------------------------------------------------- |
+| `<leader><Enter>` | Ancien raccourci `:source` (rechargement partiel, déconseillé) |
+
+Redémarrer Neovim après modification : lazy.nvim ne prend pas en charge le
+rechargement complet et les autocmds se dupliquent avec ce raccourci.
 
 ### 🔑 Which-key
 
-Tapez `<leader>` et attendez 500ms → popup des raccourcis disponibles :
+Tapez `<leader>` et attendez le délai du plugin (preset `modern`) → popup des raccourcis disponibles :
 
 - `<leader>f...` - Find/Format
 - `<leader>c...` - Comment
@@ -340,7 +434,7 @@ Tapez `<leader>` et attendez 500ms → popup des raccourcis disponibles :
 
 - **lualine** — Barre de statut (thème gruvbox) : mode, branche Git,
   diagnostics, position.
-- **which-key** — Popup des raccourcis disponibles après `<leader>` (500 ms),
+- **which-key** — Popup des raccourcis disponibles après `<leader>` (délai du plugin),
   avec les groupes Find/Format, Comment et LazyGit.
 - **tiny-inline-diagnostic** — Diagnostics affichés en fin de ligne du curseur
   uniquement (preset « ghost », multi-lignes) : pas de virtual text permanent
@@ -391,9 +485,11 @@ Tapez `<leader>` et attendez 500ms → popup des raccourcis disponibles :
 ### Syntaxe
 
 - **nvim-treesitter** (branche `main`) — Coloration et analyse syntaxiques.
-  La liste des parsers (22 langages) est exposée dans `vim.g.ts_parsers`,
-  compilée au premier lancement (CLI `tree-sitter` + compilateur C) et
-  précompilée dans le bundle offline.
+  La liste des parsers (23 entrées) est exposée dans `vim.g.ts_parsers`,
+  compilée au premier lancement avec interface (CLI `tree-sitter` + compilateur
+  C) et précompilée dans le bundle offline. Sans interface attachée, le script
+  de build déclenche et attend explicitement l’installation ; un serveur
+  Neovim démarré sans UI demande également une installation explicite.
 
 ## Désactivation temporaire
 
@@ -402,8 +498,18 @@ Tapez `<leader>` et attendez 500ms → popup des raccourcis disponibles :
 Pour désactiver un LSP, retirez-le de la liste dans `init.lua` :
 
 ```lua
-vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff", "lua_ls" })
+vim.lsp.enable({ "pyright", "bashls", "ts_ls", "svelte", "rust_analyzer", "ruff", "lua_ls", "gopls" })
 ```
+
+### Java et débogage
+
+Le [pense-bête Java](docs/java-cheatsheet.html) détaille le parcours.
+`<leader>tc` lance les tests de la classe, `<leader>tm` la méthode courante
+(si le lanceur Java est présent). `F5` lance/continue, `F10` avance sans entrer,
+`F11` entre, `<leader>do` sort, `<leader>dt` arrête, `<leader>du` ouvre les panneaux.
+`<leader>db` pose un breakpoint et `<leader>dB` un breakpoint conditionnel.
+Le serveur et les dépendances Maven/Gradle doivent être provisionnés avant
+utilisation hors ligne.
 
 ## Résolution de problèmes
 

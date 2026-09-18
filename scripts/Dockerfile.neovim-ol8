@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+FROM oraclelinux:8@sha256:21916d0f9527aa5d0b84034dcb3f6d2f01b59e633e31221b49855032ce41069a AS builder
+
+RUN dnf -y install gcc make cmake gettext curl glibc-gconv-extra git \
+        tar gzip findutils diffutils binutils pkgconf \
+    && dnf clean all
+
+WORKDIR /build
+RUN curl --fail --location --retry 3 -o neovim.tar.gz \
+        https://github.com/neovim/neovim/archive/refs/tags/v0.12.5.tar.gz \
+    && echo 'a810c95332317bd0017e1ca07e376a8472c79075cbed00fa3737d190a8a0a45a  neovim.tar.gz' | sha256sum -c - \
+    && tar -xzf neovim.tar.gz
+
+WORKDIR /build/neovim-0.12.5
+ARG JOBS=4
+RUN make -j"${JOBS}" CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX=/opt/nvim USE_BUNDLED=ON \
+    && make CMAKE_BUILD_TYPE=Release CMAKE_INSTALL_PREFIX=/opt/nvim USE_BUNDLED=ON install
+
+# Retain notices for Neovim and the libraries statically linked into its binary.
+RUN mkdir -p /artifacts/licenses/neovim /artifacts/licenses/neovim-deps \
+    && cp LICENSE.txt /artifacts/licenses/neovim/ \
+    && cd .deps/build/src \
+    && find . -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' -o -iname 'NOTICE*' \) \
+        -exec cp --parents '{}' /artifacts/licenses/neovim-deps/ \; \
+    && cp --parents lpeg/lpeg.html /artifacts/licenses/neovim-deps/
+
+# Keep the whole install tree and prove runtime discovery after relocation.
+RUN mkdir -p /artifacts /relocated \
+    && mv /opt/nvim /relocated/nvim-linux-x86_64 \
+    && /relocated/nvim-linux-x86_64/bin/nvim --clean --headless '+lua assert(vim.fn.has("nvim-0.12.5") == 1)' +qa \
+    && tar -czf /artifacts/nvim-linux-x86_64.tar.gz -C /relocated nvim-linux-x86_64 \
+    && cp cmake.deps/deps.txt /artifacts/neovim-deps.txt \
+    && rpm -qa | sort > /artifacts/build-rpms.txt \
+    && /relocated/nvim-linux-x86_64/bin/nvim --version > /artifacts/neovim-version.txt \
+    && ldd /relocated/nvim-linux-x86_64/bin/nvim > /artifacts/neovim-ldd.txt \
+    && readelf --version-info /relocated/nvim-linux-x86_64/bin/nvim > /artifacts/neovim-elf.txt
+
+FROM scratch
+COPY --from=builder /artifacts/ /

@@ -1,7 +1,15 @@
 # Socle classpath jdtls — design
 
 Date : 2026-08-15
-Statut : validé, prêt pour plan d'implémentation
+Statut : design historique, partiellement réalisé.
+
+> Vérification du 18 septembre 2026 : ce document conserve les décisions
+> proposées, pas une description de l’implémentation courante. Java reste dans
+> `init.lua` ; la racine inclut Ant/Eclipse, le workspace dérive de cette racine
+> et des runtimes alternatifs sont configurables. La remontée au réacteur,
+> le hash anti-collision, l’extraction `ftplugin/java.lua` et les trois fixtures
+> ci-dessous ne sont pas implémentés. Debug et tests ont déjà été ajoutés.
+> Voir le README et le rapport de revue pour l’état actuel.
 
 ## Objectif
 
